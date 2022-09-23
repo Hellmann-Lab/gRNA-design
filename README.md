@@ -1,59 +1,16 @@
-# gRNA-design
+# Cross-species gRNA-design
 
-This repository was created as part of the Perturb-seq project that aims to compare perturbation-inferred networks across primates. It contains the scripts and figures used for the selection of the target transcription factors and the design of the gRNAs.
+## Background
+
+This repository contains all data and code required to run the ***Cross-species gRNA design app*** created for the Perturb-seq project of the Hellmmann-Enard Lab. As part of this project, we plan to perturb a selection of transcription factors (TFs) using single-cell CRISPRi screens in primate iPS cells, infer gene regulatory networks (GRNs) based on the outcome of the perturbations, then quantitatively compare these GRNs aross species. As a first step, we selected TFs based on previous data that might be interesting to perturb, identified their transcriptional start sites (TSSs) and designed single-guide RNAs (gRNAs) using the model published in [*Horlbeck, 2016*](#1) to target these genomic loci. We then compiled species-specific libraries by selecting gRNAs with the highest and most comparable predicted activity scores. The steps of the experimental design are summarised on *Figure 1*.
 
 <p>
   <img align="center"
-  src="figures/flowchart.bmp"
+  src="gRNA_design_pipeline.pdf"
   alt="flowchart"></p>
-  <p align="center"><em><strong>Figure 1.</strong> Flowchart of the TF selection and gRNA design</em></p>
+  <p align="center"><em><strong>Figure 1.</strong> Main steps of the TF selection and gRNA design</em></p>
 
-## Contents:
-
-**Horlbeck_data.Rmd**: 
-- loads the tssTable, p1p2Table and designed gRNAs from *Horlbeck et al., 2016*
-- checks the TSS sizes and gRNA-TSS distances for the primary and secondary TSSs
-- lifts over the TSSs and gRNAs from Hg19 to Hg38
-
-**TF_TSS_hg38.Rmd**: 
-- finds all human TFs with at least 1 annotated motif
-- finds human TSSs by combining evidence from ATAC-seq data, nanopore data and the Hg38 ENSEMBL annotation 
-- prepares input for the gRNA design tool 
-- runs the gRNA design and activity scoring adapted from *Horlbeck et al., 2016*
-- compares the TSS sizes and gRNA-TSS distances to those from the Horlbeck data
-
-**TF_TSS_mf6.Rmd**: 
-- finds cyno TSSs by combining evidence from Hg39-to-macFas6 TSS RBB, ATAC-seq data, nanopore data (ref: Hg39-to-macFas6 exon RBB and Mf6 ENSEMBL) and the macFas6 ENSEMBL annotation 
-- prepares input for the gRNA design tool 
-- runs the gRNA design and activity scoring adapted from *Horlbeck et al., 2016*
-
-**TF_expression.Rmd**:
-- calculates the percent of human and cyno iPS cells expressing the target TFs based on the EB and NPC differentiation data
-
-**gRNA_downstream_processing.Rmd**: 
-- matches gRNAs between the Hg38 and macFas6 designs
-- scores gRNA pairs with 1 mismatch on the opposite genome
-- creates Hg38 and macFas6 gRNA tables for the shiny app
-
-**gRNA_RBB.Rmd**:
-
-- creates BSgenome packages for gorGor6 and ponAbe3
-- blats Hg38 gRNAs to gorGor6 and ponAbe3
-- filters gorGor6 ans ponAbe RBB gRNAs based on the distance to the original gene and the presence of a PAM
-
-**functions/**:
-
-functions required for conda environment installation, RBB, gRNA design, activity scoring and mismatch scoring
-
-**figures/**:
-
-figures created by the R markdown files
-
-**shiny_app/**:
-
-scripts for the preparations of the input data and the app itself
-
-## User guide for the app:
+## User guide for the app
 
 ### Input parameters:
 
@@ -146,7 +103,9 @@ scripts for the preparations of the input data and the app itself
   
 #### gRNA selection
 
-Coming soon, stay tuned :)
+## References
+<a id="1">[1]</a> 
+Horlbeck, M. A., Gilbert, L. A., Villalta J. E. *et al*. (2016). **Compact and highly active next-generation libraries for CRISPR-mediated gene repression and activation** *eLife* **5**:e19760.
 
 
 
