@@ -2,77 +2,66 @@
 
 ## Background
 
-This repository contains all data and code required to run the ***Cross-species gRNA design app*** created for the Perturb-seq project of the Hellmmann-Enard Lab. As part of this project, we plan to perturb a selection of transcription factors (TFs) using single-cell CRISPRi screens in primate iPS cells, infer gene regulatory networks (GRNs) based on the outcome of the perturbations, then quantitatively compare these GRNs aross species. As a first step, we selected TFs based on previous data that might be interesting to perturb, identified their transcriptional start sites (TSSs) and designed single-guide RNAs (gRNAs) using the model published in [*Horlbeck, 2016*](#1) to target these genomic loci. We then compiled species-specific libraries by selecting gRNAs with the highest and most comparable predicted activity scores. The steps of the experimental design are summarised on *Figure 1*.
+This repository contains all data and code required to run the ***Cross-species gRNA design app*** created for the Perturb-seq project of the Hellmmann-Enard Lab. As part of this project, we plan to perturb a selection of transcription factors (TFs) using single-cell CRISPRi screens in primate iPS cells, infer gene regulatory networks (GRNs) based on the outcome of the perturbations, then quantitatively compare these GRNs aross species. 
+
+As a first step, we selected TFs based on previous data that might be interesting to perturb, identified their transcriptional start sites (TSSs) and designed single-guide RNAs (gRNAs) using the model published in [*Horlbeck, 2016*](#1) to target these genomic loci. We then compiled species-specific libraries by selecting gRNAs with the highest and most comparable predicted activity scores across species (*Figure 1*). These libraries will be transduced into human and cynomolgus macaque iPS cell lines that inducibly express dCAs9-KRAB to achieve TF repression. Later we would like to expand the spectrum of the species to the gorilla and orang-utan as well.
 
 <p>
   <img align="center"
-  src="gRNA_design_pipeline.pdf"
-  alt="flowchart"></p>
+  src="gRNA_design_pipeline.svg"
+  alt="pipeline"></p>
   <p align="center"><em><strong>Figure 1.</strong> Main steps of the TF selection and gRNA design</em></p>
+  
+Basic criteria for a target gene:
+
+ - autosomal
+ - annotated as a transcription factor with at least one associated motif
+ - has TSSs with sufficient evidence in both the human and the cynomolgus macaque genomes (hg38 and macFas6, respctively)
+ 
+We found 1109 TFs that passed these criteria, these are the ones included in the app. We then selected 76 TFs -- corresponding to 80 TSSs -- based on various characteristics (expression levels, robustness and cross-species conservation of regulons in co-expression networks, protein sequence conservation, TF family annotations and functional importance in iPSCs). The gRNA libraries contain 4 gRNAs for each of these 80 TSS and each of the 2 species, as well as non-targeting gRNAs as negative controls. The app aims to present all characteristics we collected for the 1109 candidate TFs, the designed gRNAs and our final selections in an easily searchable and visual way.
+  
+## Data
+
+
 
 ## User guide for the app
 
-### Input parameters:
+### Input parameters
 
-#### Step 1: choose expression and module robustness criteria
+#### Expression and module robustness cutoffs
 
-- **expression measure:** The % of cells expressing a given TF in the human/cyno iPS cells of the NPC differentiation data.
+- **expression measure:** The % of cells expressing a given TF in the human/cyno iPS cells based on unpublished scRNA-seq data.
 
-- **module robustness measure:** Overall connectedness (density) and consistency of inferred regulatory links between biological replicates of the same species (connectivity) based on the human and cyno early neural differentiation lineage in the NPC differentiation and EB data. Detailed steps:
+- **module robustness measure:** The robustness/preservation of the TF regulons based on the human and cyno early neural differentiation lineage in our unpublished scRNA-seq data. We considered two aspects of robustness:
 
-  1. integrate the NPC differentiation data and the neural lineage of the EB data
-  2. keep only iPS cells and the early stage of differentiation
-  3. infer clonewise networks
-  4. calculate average network and based on this, get the pruned regulons of the TFs
-  5. calculate the Z-density for all human/cyno clones and the Z-connectivity for all human-human/cyno-cyno clone pairs
-  6. calculate the mean across all clones or clone pairs (1 Z-density and 1 Z-connectivity measure per species per module)
-  7. fit a linear regression line over the Z-connectivity - module size data points of all modules, separately in the two species and calculate residuals
-  8. calculate the Z-scores of the Z-densities and the Z-scores of the Z-connectivity residuals, together for both species
-  9. calculate the mean of the density and connectivity Z-scores in human/cyno for the module of interest
+  1. Density: How well-connected are the genes of the regulon overally?
+  2. Connectivity: How consistent are the interaction patterns inferred within the module if we compare them across biological replicates from the same species?
   
-- The histograms show the expression and module robustness distributions of all TFs that...
-
-  - ...have at least 1 annotated motif
-  - ...have at least 1 well-supported TSS 
-  - ...are not X- or Y-linked
-  - ...are in the NPC differentiation data count matrix
-  - ...have a regulon size >= 20
+- The histograms show the expression and module robustness distributions for all TFs that passed our basic criteria and have available expression data.
   
 - The darkgrey colouring on the histograms indicates TFs that pass the cutoff in the given species.
 
 - To be included for the further analysis, TFs have to pass the cutoff in both species.
 
-#### Step 2: choose the the TF to be perturbed
+#### Target gene
 
-- Normally, the drop-down menu contains all TFs that...
-
-  - ...have at least 1 annotated motif
-  - ...have at least 1 well-supported TSS 
-  - ...are not X- or Y-linked
-  - ...are in the NPC differentiation data count matrix
-  - ...have a regulon size >= 20
-  - ...pass the expression cutoff in both species
-  - ...pass the module robustness cutoff in both species
+- Normally, the drop-down menu contains all TFs that passed the basic criteria, have available expression data and are above the expression and module robustness cutoffs.
   
-- If both cutoffs are set to the minimum (expression cutoff = 0 and module robustness cuotff = -3), the drop-down menu contains all TFs that...
-
-  - ...have at least 1 annotated motif
-  - ...have at least 1 well-supported TSS 
-  - ...are not X- or Y-linked
+- If both cutoffs are set to the minimum (expression cutoff = 0 and module robustness cuotff = -3), the drop-down menu contains all TFs that passed the basic criteria, regardless of whether we have expression data about them or not.
   
 - An interactive plot of cross-species regulatory network conservation is displayed to aid the choice of TFs. Mouse over data points to find out which are the TFs with the most conserved/diverged regulons.
 
-#### Step3: choose the genome
+#### Genome
 
-- For each gene, gRNAs were designed in both the human (hg38) and the cyno (macFas6) genome. Choose a genome to decide which design should be displayed.
+For each gene, gRNAs were designed in both the human (hg38) and the cyno (macFas6) genome. Choose a genome to decide which design should be displayed.
 
-#### Step4: choose additional parameters
+#### Include Horlbeck design?
 
-- **Include Horlbeck design?**: If set to yes, the gRNAs from *Horlbeck et al., 2016* (lifted over from hg19 to hg38) are also displayed in the hg38 genome and appear as matched gRNAs in the macFas6 genome.
+If set to yes, the gRNAs from *Horlbeck et al., 2016* (lifted over from hg19 to hg38) are also displayed in the hg38 genome alongside our own design.
 
-- **Padding for genomic region**: The number of bps to display on both sides of the TSS regions for the chosen TF.
+#### Padding for genomic region
 
-- **Binning parameter for the merging of close-by gRNAs:** The number of bps the gRNAs will be extended/reduced to before finding overlaps between them and keeping only the highest scoring gRNA from each cohort. The higher the binning parameter, the less gRNAs will be kept and the larger the distance will be between them.
+The number of bps to display on both sides of the promoter region for the chosen TF on the Gviz plot.
 
 ### Output
 
