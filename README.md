@@ -30,25 +30,20 @@ All data files and scripts required to run the app are available at [![DOI](http
 
 ### Expression and module robustness cutoffs
 
-- **expression measure:** The % of cells expressing a given TF in the human/cyno iPS cells based on unpublished scRNA-seq data.
+Minimum expression and mosule robustness required for the target genes.
 
-- **module robustness measure:** The robustness/preservation of the TF regulons based on the human and cyno early neural differentiation lineage in our unpublished scRNA-seq data. We considered two aspects of robustness, originally described in [Langfelder et al, 2008](#4):
-
+- **Expression measure:** The % of cells expressing a given TF in the human/cyno iPS cells based on unpublished scRNA-seq data.
+- **Module robustness measure:** The robustness/preservation of the TF regulons based on the human and cyno early neural differentiation lineage in our unpublished scRNA-seq data. We considered two aspects of robustness, originally described in [Langfelder et al, 2008](#4):
   1. Density: How well-connected are the genes of the regulon overally?
-  2. Connectivity: How consistent are the interaction patterns inferred within the module if we compare them across biological replicates from the same species?
-  
+  2. Connectivity: How consistent are the interaction patterns inferred within the module if we compare them across biological replicates from the same species?  
 - The histograms show the expression and module robustness distributions for all TFs that passed our basic criteria and have available expression data.
-  
 - The darkgrey colouring on the histograms indicates TFs that pass the cutoff in the given species.
-
 - To be included for the further analysis, TFs have to pass the cutoff in both species.
 
 ### Target gene
 
 - Normally, the drop-down menu contains all TFs that passed the basic criteria, have available expression data and are above the expression and module robustness cutoffs.
-  
 - If both cutoffs are set to the minimum (expression cutoff = 0 and module robustness cuotff = -3), the drop-down menu contains all TFs that passed the basic criteria, regardless of whether we have expression data about them or not.
-  
 - An interactive plot of cross-species regulatory network conservation is displayed to aid the choice of TFs. Mouse over data points to find out which are the TFs with the most conserved/diverged regulons.
 
 ### Genome
@@ -76,7 +71,6 @@ The same histogram as before, with the robustness measure of the chosen TF marke
 ### Cross-species conservation:
 
 Conservation of the TF regulons between human and cyno based on the early neural differentiation lineage in our unpublished scRNA-seq data. We considered two aspects of conservation, originally described in [Langfelder et al, 2008](#4):
-
   1. Density: Does a module that is well-connected in one species also stay well-connected in another species?
   2. Connectivity: Do interaction patterns inferred within the module if we compare them across biological replicates from the same species?
     
@@ -105,16 +99,70 @@ A plot displaying the genomic region around the TSSs of the chosen gene. The wid
 Tracks:
 
 - **GENCODE annotation**: Human (GRCh38.p13) or cynomolgus macaque (Macaca_fascicularis_6.0.105) reference annotation for the gene of interest. If the chosen gene has an annotated symbol, the transcripts are filtered by the symbol, otherwise the transcripts are filtered by the genomic region and strand.
-
 - **Long-read RNA-seq data**: Nanopore reads and coverage from human and cynomolgus iPS cells.
-
 - **Designed gRNAs**: The targeted genomic positions and predicted activity scores of the designed gRNAs.
-
 - **ATAC-seq data**: ATAC-seq peaks from human and cynomolgus iPS cells (two individuals for each of the species).
 
 ### Scores & positions for the gRNAs
 
-The targeted genomic positions and predicted activity scores of the designed gRNAs for each of the TSS regions. gRNAs selected in the final CRISPRi library are marked by green, the ones not selected are coloured red. If the *Include Horlbeck design?* input parameter is set to *Yes*, the gRNAs from [*Horlbeck, 2016*](#1) are also displayed in black. Please note that the scores from the Horlbeck design and the scores from our own design are not directly comparable, because they are calculated based on slightly different models (our model was customized for the planned experiment by using ATAC-seq peaks from human and cynomolgus iPS cells as accessibility data).
+An interactive plot displaying the targeted genomic positions and predicted activity scores of the designed gRNAs for each of the TSS regions. 
+
+- gRNAs selected in the final CRISPRi library are marked by green, the ones not selected are coloured red. 
+- If the *Include Horlbeck design?* input parameter is set to *Yes*, the gRNAs from [*Horlbeck, 2016*](#1) are also displayed (coloured black). Please note that the scores from the Horlbeck design and the scores from our own design are not directly comparable, because they are calculated based on slightly different models. For our purposes, the published model was re-trained using ATAC-seq peaks from human and cynomolgus iPS cells as accessibility data.
+- gRNAs can be selected by clicking or brushing data points with the mouse. Detailed information about the selected gRNAs will appear in the table below.
+
+### Selected gRNAs
+
+A table summarising the available information about the gRNAs selected by the user.
+
+Table entries:
+
+- **sgID**: Unique identifier of the gRNA in the chosen genome (format: geneName_strand_genomicPosition.lengthWithPAM-tssId).
+- **source**: The design where the gRNA was found.
+
+  - horlbeck: the gRNAs in Horlbeck et al., 2016 lifted over from hg19 to hg38
+  - hg38 design: our own design for hg38
+  - mf6 design: our own design for macFas6
+- **tss_id**: The transcriptional start site (TSS) region that the gRNA targets. We identified the TSSs by integrating evidence from the GENCODE annotation, long read RNA-seq and bulk ATAC-seq data as well as reciprocal best BLAT hits of the human TSS in case of the non-human primates. The TSS were ranked based on available evidence, with a lower number meaning more evidence, and named according to the ranks (format: geneName_rank). For the gRNA design, we merged TSSs of a gene that are closer than 1kb into TSS regions. We refer to these regions by the concatenated names of the merged TSSs (format: geneName_rank1,geneName_rank2).
+- **predicted_activity**: Activity score calculated based on Horlbeck et al., 2016. 
+
+  Model:
+
+  - in case of source 'horlbeck': the original elastic net in Horlbeck et al., 2016
+  - in case of source 'hg38 design' and 'mf6 design': a modified version of this elastic net trained with only one type of accessibility data (human iPSC ATAC-seq data as a replacement of the original DNase data)
+  
+  The scores are within the range [0, 1] with a higher score meaning a higher activity/more efficient knock-down. The strongest predictor of the activity is the position relative to the TSS, including both distance from the TSS and avoidance of canonical nucleosome-occupied regions.
+
+- **off_target_stringency**: The level of the most stringent off-target filter the gRNA passed, with a lower level meaning a more stringent filter/less off-target effects.
+
+  Filters applied:
+
+  - 31_nearTSS: passed if there is no off-target site within the TSS regions with a mismatch threshold of 31
+  - 21_genome: passed if there is no off-target site within the whole genome with a mismatch threshold of 21
+  - 31_2_nearTSS: passed if there is <=1 off-target site within the TSS regions with a mismatch threshold of 31
+  - 31_3_nearTSS: passed if there are <=2 off-target sites within the TSS regions with a mismatch threshold of 31
+  
+  Levels:
+
+  - 0: the gRNA passed the filters 31_nearTSS & 21_genome
+  - 1: the gRNA passed the filter 31_nearTSS but not 21_genome
+  - 2: the gRNA passed the filter 21_genome but not 31_nearTSS
+  - 3: the gRNA passed the filter 31_2_nearTSS but not 31_nearTSS or 21_genome
+  - 4: the gRNA passed the filter 31_3_nearTSS but not 31_nearTSS, 21_genome or 31_2_nearTSS
+  
+  If a gRNA does not pass any of these filters, it is discarded from the design output.
+
+- **gRNA sequence**: The 20-nt long sequence of the gRNA. In case of source 'horlbeck', this means the original hg19 sequence which occassionally differs from the sequence at the position where the gRNA is displayed in hg38 genome space.
+
+- **match_in_other_genome**: Category based on the matching between the gRNAs designed for hg38 (horlbeck + own design) and the gRNAs designed for mf6.
+
+  - zero_mismatch: the gRNA has a perfectly matching counterpart in the other library
+  - one_mismatch: the gRNA has a counterpart with 1 mismatch in the other library
+  - no_cyno_gRNA/no_human_gRNA: the gRNA does not have a match with ≤1 mismatch in the other library
+
+- **is_in_lib**: 'Yes' if the gRNA is in the final CRISPRi library, 'No' if it is not. We designed two species-specific libraries, one for human and one for cynomolgus, each of them contains 4 gRNAs per TSS region. Both effectiveness (high predicted activity scores) and comparability (similar predicted activity scores in the two species) was taken into account when compiling the libraries.
+
+New gRNAs can be added to table by selecting data points on the *Scores & positions for the gRNAs* plot. The entries can be cleared using the button *Clear selected*. The table can also be searched, filtered and exported.
 
 ## References
 <a id="1">[1]</a> 
