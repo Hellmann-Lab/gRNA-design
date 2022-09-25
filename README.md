@@ -1,10 +1,10 @@
 # Cross-species gRNA-design
 
-## Background
+## Introduction
 
-This repository contains all data and code required to run the ***Cross-species gRNA design app*** created for the Perturb-seq project of the Hellmmann-Enard Lab. As part of this project, we plan to perturb a selection of transcription factors (TFs) using single-cell CRISPRi screens in primate iPS cells, infer gene regulatory networks (GRNs) based on the outcome of the perturbations, then quantitatively compare these GRNs aross species. 
+This is a detaled documentation of the ***Cross-species gRNA design*** shiny app created for the Perturb-seq project of the Hellmmann-Enard Lab. As part of this project, we plan to perturb a selection of transcription factors (TFs) using single-cell CRISPRi screens in primate iPS cells, infer gene regulatory networks (GRNs) based on the outcome of the perturbations, then quantitatively compare these GRNs aross species. 
 
-The main steps of the experimental design are summarised on *Figure 1*. We selected TFs based on previous data that might be interesting to perturb, identified their transcriptional start sites (TSSs) and designed single-guide RNAs (gRNAs) using the model published in [*Horlbeck, 2016*](#1) to target these genomic loci. We then compiled species-specific libraries by selecting gRNAs with the highest and most comparable predicted activity scores across species (*Figure 1*). These libraries will be transduced into human and cynomolgus macaque iPS cell lines that inducibly express dCAs9-KRAB to achieve TF repression. Later we would like to expand the spectrum of the species to the gorilla and orang-utan as well.
+The main steps of the experimental design are summarised on *Figure 1*. We selected TFs based on previous data that might be interesting to perturb, identified their transcriptional start sites (TSSs) in the human and cynomolgus macaque genomes, then designed single-guide RNAs (gRNAs) using the model published in [*Horlbeck, 2016*](#1) to target these genomic loci. We compiled species-specific libraries by selecting gRNAs with the highest and most comparable predicted activity scores across species. These libraries will be transduced into human and cynomolgus macaque iPS cell lines that inducibly express dCAs9-KRAB to achieve TF perturbations. Later we would like to expand the spectrum of the species to the gorilla and orang-utan as well.
 
 <p>
   <img align="center"
@@ -24,7 +24,7 @@ The app aims to present all characteristics we collected for the 1109 candidate 
   
 ## Data
 
-
+All data files and scripts required to run the app are available at [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7111658.svg)](https://doi.org/10.5281/zenodo.7111658)
 
 ## Input parameters
 
@@ -97,6 +97,24 @@ Annotated GO terms for the chosen TF. Terms describing TF activity or DNA bindin
 Paralogs from the BioMart database. 
   
 ## Output - gRNA selection
+
+### Gviz plot
+
+A plot displaying the genomic region around the TSSs of the chosen gene. The width of the region can be adjusted via the input parameter *Padding for genic region*.
+
+Tracks:
+
+- **GENCODE annotation**: Human (GRCh38.p13) or cynomolgus macaque (Macaca_fascicularis_6.0.105) reference annotation for the gene of interest. If the chosen gene has an annotated symbol, the transcripts are filtered by the symbol, otherwise the transcripts are filtered by the genomic region and strand.
+
+- **Long-read RNA-seq data**: Nanopore reads and coverage from human and cynomolgus iPS cells.
+
+- **Designed gRNAs**: The targeted genomic positions and predicted activity scores of the designed gRNAs.
+
+- **ATAC-seq data**: ATAC-seq peaks from human and cynomolgus iPS cells (two individuals for each of the species).
+
+### Scores & positions for the gRNAs
+
+The targeted genomic positions and predicted activity scores of the designed gRNAs for each of the TSS regions. gRNAs selected in the final CRISPRi library are marked by green, the ones not selected are coloured red. If the *Include Horlbeck design?* input parameter is set to *Yes*, the gRNAs from [*Horlbeck, 2016*](#1) are also displayed in black. Please note that the scores from the Horlbeck design and the scores from our own design are not directly comparable, because they are calculated based on slightly different models (our model was customized for the planned experiment by using ATAC-seq peaks from human and cynomolgus iPS cells as accessibility data).
 
 ## References
 <a id="1">[1]</a> 
