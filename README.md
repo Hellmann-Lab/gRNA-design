@@ -86,7 +86,7 @@ TFBS motif logos based on the information content matrices for each annotated mo
   
 ### Protein sequence conservation
 
-Mean phastCons score of the TF CDS based on multiple alignments of 29 primate genome sequences to the human genome ([phastCons30way](#4)). The histogram shows the distribution of the meanCons scores of all genes in the drop-down menu, the score of the chosen TF is marked in red.
+Mean phastCons score of the TF CDS based on multiple alignments of 29 primate genome sequences to the human genome ([phastCons30way](#5)). The histogram shows the distribution of the meanCons scores of all genes in the drop-down menu, the score of the chosen TF is marked in red.
   
 ### Functional annotation
 
