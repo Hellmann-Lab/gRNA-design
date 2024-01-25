@@ -1,0 +1,1325 @@
+```{r setup, include=FALSE}
+library(tidyverse)
+library(plyranges)
+library(knitr)
+library(kableExtra)
+library(biomaRt)
+library(GenomeInfoDb)
+library(universalmotif)
+library(wesanderson)
+library(patchwork)
+library(Gviz)
+library(rtracklayer)
+library(data.table)
+library(ggtext)
+library(lmerTest)
+library(ggplotify)
+library(gridExtra)
+library(yaml)
+library(reticulate)
+
+knitr::opts_chunk$set(
+	eval = T,
+	echo = T,
+	error = F,
+	fig.align = "center",
+	fig.height = 4,
+	fig.lp = "fig:",
+	fig.path = "figures/tf_tss_cyno-",
+	fig.pos = "H",
+	fig.show = "hold",
+	fig.width = 4,
+	message = FALSE,
+	warning = FALSE,
+	cache = FALSE,
+	cache.path = "cache/tf_tss_cyno-",
+	out.width = "80%",
+	results = "hide",
+	size = "footnotesize",
+	tidy.opts = list(width.cutoff = 60)
+)
+```
+
+```{r load_custom_functions}
+annotate_nanopore_transcripts <- function(np, ref, set_seqlevel_style = "UCSC", min_overlap = .6) {
+  #' Annotates nanopore transcripts
+  #'
+  #'Uses a reference genome range to annotate nanopore transcripts. Can be used 
+  #'for similar genome ranges.
+  #'
+  #'@param np Nanopore transcripts
+  #'@param ref Reference genome range
+  #'@param set_seqlevel_style seqlevelStyle for nanopore transcript
+  #'@param min_overlap Minimum overlap of sequence between the reference and input transcripts. Values between 0 and 1.
+  
+  seqlevelsStyle(np) <- set_seqlevel_style
+  seqlevelsStyle(ref) <- set_seqlevel_style
+  
+  ref <- ref %>% mutate(gencode_strand = strand) %>% 
+    group_by(gene_name,gencode_strand) %>% 
+    reduce_ranges()
+  
+  np_strand<- np %>% plyranges::filter(type == "exon") %>% as_tibble %>% 
+    group_by(transcript_id) %>% 
+    mutate( orig.size= sum(width)) %>% 
+    as_granges() %>% 
+    join_overlap_intersect( ref  ) %>% 
+    as_tibble %>% 
+    group_by( transcript_id, gene_name) %>% 
+    mutate( bp_ol = sum(width),
+            rel_ol =sum(width)/orig.size,
+            strand = ifelse(sum(strand=="+")>sum(strand=="-"),"+","-") ) %>%
+    group_by(transcript_id) %>% 
+    filter( bp_ol == max(bp_ol) ) %>%
+    filter( rel_ol >=min_overlap) %>% #, gencode_strand == strand ) %>% 
+    transmute(strand=gencode_strand,transcript_id,gene_name, bp_ol,rel_ol)
+  
+  transcripts <- np %>% as_tibble %>%  
+    filter(type == "mRNA") %>% 
+    dplyr::select(-strand) %>% 
+    inner_join(np_strand) %>%
+    distinct_all %>% as_granges() 
+  
+  return(transcripts)
+  
+}
+
+## Helper function - common TFs
+
+calculate_motif_info_content<-function( pfm_file =jaspar_pfm_file, type = "jaspar"){
+  #'Retrieves motif info from JASPAR or Homer file
+  #'
+  #'Retrieves motif info from JASPAR or Homer file
+  #'
+  #'@param pfm_file Position Frequency Matrix file
+  #'@param type Type of PFM file
+  
+  if( type == "jaspar" ){
+    x <- universalmotif::read_jaspar(pfm_file)
+  }else if (type == "homer"){
+    x<- universalmotif::read_homer(pfm_file)
+  }else{
+    return("type must be homer or jaspar\n")
+  }
+  
+  tibble(motif_id = sapply( 1:length(x), function(i){ x[[i]]@name }),
+         IC = sapply( 1:length(x), function(i){ x[[i]]@icscore }) )
+}
+
+# Get rank from tss_id
+get_rank <- function(tss_id){
+  #'Get rank from TSS_ID
+  #'
+  #'Splits the existing tss_id to retrieve rank as number (Internal Function)
+  #'
+  #'@param tss_id TSS ID
+  return(as.integer(strsplit(tss_id, '_')[[1]][-1]))
+}
+
+# Select tss_id with minimum rank
+tss_names_sort <- function(tss_ids){
+  #'Handles multi-named tss_ids
+  #'
+  #'Any tss_id with multiple ids concatenated handled by this internal function (Internal Function)
+  #'
+  #'@param tss_ids TSS IDs
+  list_ids <- strsplit(tss_ids, ',')[[1]]
+  list_ranks <- sapply(list_ids, get_rank)
+  
+  return(list_ids[which.min(list_ranks)])
+  
+}
+
+# distance to gene
+TSS_dist2gene<- function(tss, gene_model, max.up = 1e5){
+  #'Handles multi-named tss_ids
+  #'
+  #'Any transcript_id with multiple ids concatenated handled by this internal function (Internal Function)
+  #'
+  #'@param tss GRange object for TSSs
+  #'@param gene_model Gene model prepared from GTF file
+  #'@param max.up Maximum distance to consider upstream of gene
+  
+  gm_tss<- gene_model %>% 
+    as_granges()  %>% 
+    anchor_5p() %>% 
+            mutate( gene_size = width,
+                    width =1)
+  #could also be directed
+  dd<-bind_ranges(tss %>%
+                    as_granges() %>% 
+                    join_nearest_upstream( gm_tss, suffix=c("_x",""), distance=T) %>% 
+                    filter(gene_name_x == gene_name & distance < gene_size ) %>% 
+                    plyranges::select(-gene_name_x) %>% 
+                    mutate(dir = "downstream"), 
+                  tss %>% 
+                    as_granges() %>%
+                    join_nearest_downstream(gm_tss ,suffix=c("_x",""),distance=T) %>% 
+                    filter(gene_name_x == gene_name & distance < max.up) %>% 
+                    plyranges::select(-gene_name_x)  %>% 
+                    mutate(dir="upstream") ) %>% 
+    as_tibble %>% 
+    dplyr::group_by( transcript_id, gene_name ) %>% 
+    dplyr::filter( distance == min(distance)) %>% 
+    transmute( seqnames, start, end, strand, transcript_id, gene_name, dir, distance) %>% 
+    as_granges
+  
+  return(dd)
+  
+}
+
+
+# helper function: make gene models
+
+
+# helper functions to cluster gRNAs based on position and keep the one with the highest on-target activity per cluster
+bin_grnas_v1 <- function(grnas, binwidth) {
+  #'Filters grnas based on predicted activity score
+  #'
+  #'Selects top 4 gRNAs for each gene. The sgRNAs with maximum predicted activity are selected
+  #'
+  #'@param grnas Table of selected grnas
+  #'@param binwidth Extend the range by hlaf of binwidth a both ends 
+
+  merged_grnas <- grnas %>%
+    # convert to granges object
+    dplyr::mutate(start = position + 1,
+                  width = 1) %>%
+    as_granges() %>%
+    anchor_5p() %>%
+    stretch(22) %>% 
+    anchor_3p() %>%
+    stretch(-3) %>%
+    # get middle position of gRNA
+    anchor_center() %>%
+    stretch(-20) %>%
+    # extend by the user-provided binwidth
+    stretch(binwidth) %>%
+    # gRNAs that overlap after extenion belong to the same cluster
+    group_by(transcript) %>%
+    reduce_ranges(sgID = paste(sgID, collapse = ","),
+                  predicted_score = paste(predicted_score, collapse = ",")) %>%
+    as_tibble() %>% 
+    separate_rows(sgID, predicted_score, sep = ",") %>% 
+    # find the gRNA with the highest on-target activity per cluster
+    group_by(seqnames, start, end, transcript) %>% 
+    dplyr::summarise(sgID = sgID[predicted_score == max(predicted_score)]) %>% 
+    ungroup()
+
+  # retrieve all information about the selected gRNAs originally provided in 'grnas' 
+  binned_grnas <- grnas %>%
+    inner_join(merged_grnas, by = c("seqnames", "transcript", "sgID")) %>%
+    dplyr::select(-c("start", "end"))
+
+  return(binned_grnas)
+
+}
+
+# helper functions to cluster gRNAs based on position and keep the one with the best combination of high on-target + low off-target activity per cluster
+bin_grnas_v2 <- function(grnas, binwidth, max_reduction_activity) {
+  #'Filters grnas based on predicted activity score and off-target effects
+  #'
+  #'Selects top 4 gRNAs for each gene. The sgRNAs with maximum predicted 
+  #'activity and low off-target effects are selected. Maximum activity is 
+  #'created after adjusting for off-target score 
+  #'
+  #'@param grnas Table of selected grnas
+  #'@param binwidth Extend the range by hlaf of binwidth a both ends 
+  #'@param max_reduction_activity Threshold for predicted activity compromised for off-target effects
+  
+  merged_grnas <- grnas %>%
+    # convert to granges object
+    dplyr::mutate(start = position + 1,
+                  width = 1) %>%
+    as_granges() %>%
+    anchor_5p() %>%
+    stretch(22) %>% 
+    anchor_3p() %>%
+    stretch(-3) %>%
+    # get middle position of gRNA
+    anchor_center() %>%
+    stretch(-20) %>%
+    # extend by the user-provided binwidth
+    stretch(binwidth) %>%
+    # gRNAs that overlap after extenion belong to the same cluster
+    group_by(transcript) %>%
+    reduce_ranges(sgID = paste(sgID, collapse = ","),
+                  off_target_stringency = paste(off_target_stringency, collapse = ","),
+                  predicted_score = paste(predicted_score, collapse = ",")) %>% 
+    as_tibble() %>% 
+    separate_rows(sgID, off_target_stringency, predicted_score, sep = ",") %>% 
+    dplyr::mutate(off_target_stringency = as.integer(off_target_stringency),
+                  predicted_score = as.double(predicted_score)) %>% 
+    # heuristic to prefer gRNAs with high on-target activity scores AND low off-target scores
+    group_by(seqnames, start, end, transcript) %>% 
+    dplyr::arrange(desc(predicted_score), .by_group = T) %>%
+    dplyr::mutate(predicted_score_best = max(predicted_score),
+                  off_target_stringency_best = off_target_stringency[predicted_score == max(predicted_score)],
+                  # if the highest scoring gRNA has a bad off-target score (>2) AND some other gRNAs have better off-target scores and not much worse on-target scores (how much worse is tolerated is defined by the user-provided parameter max_reduction activity), then instead of the original best gRNA we rather take the best out of these other gRNAs
+                  predicted_score_chosen = ifelse(unique(off_target_stringency_best) > 2 & 
+                                                (sum((predicted_score_best - predicted_score < max_reduction_activity) + (off_target_stringency_best > off_target_stringency) == 2) > 0),
+                                              predicted_score[which((predicted_score_best - predicted_score < max_reduction_activity) + (off_target_stringency_best > off_target_stringency) == 2)[1]],
+                                              max(predicted_score))) %>% 
+    dplyr::summarise(sgID = sgID[predicted_score == predicted_score_chosen]) %>% 
+    ungroup()
+  
+  # retrieve all information about the selected gRNAs originally provided in 'grnas' 
+  binned_grnas <- grnas %>%
+    inner_join(merged_grnas, by = c("seqnames", "transcript", "sgID")) %>%
+    dplyr::select(-c("start", "end"))
+
+  return(binned_grnas)
+
+}
+
+# Violin plot to compare predicted score of selected vs all gRNAs
+predicted_score_plot <- function(gRNAs_gg6_all, gRNAs_gg6_top4_v2, title = '') {
+  #'Compare predicted score between two gRNA tables
+  #'
+  #'Violin plot to compare predicted score of two gRNA Tables
+  #'
+  #'@param gRNAs_gg6_all First table of selected grnas
+  #'@param gRNAs_gg6_top4_v2 Second table of selected grnas
+  #'@param title String for plot title
+  bind_rows(
+    gorilla = bind_rows(
+      `all designed` = gRNAs_gg6_all %>% dplyr::select(sgID, predicted_score),
+      selected = gRNAs_gg6_top4_v2 %>% dplyr::select(sgID, predicted_score),
+      .id = "gRNAs"
+    ),
+    .id = "species"
+  ) %>%
+    dplyr::mutate(
+      gRNAs = factor(gRNAs, levels = c("all designed", "selected")),
+      species = factor(species, levels = c("gorilla")),
+      category = paste0(species, "_", gRNAs)
+    ) %>%
+    ggplot(aes(x = gRNAs, y = predicted_score, fill = category)) +
+    geom_violin(draw_quantiles = 0.5) +
+    facet_wrap( ~ species) +
+    theme_bw(base_size = 21) +
+    theme(plot.title = element_text(hjust = 0.5))+
+    scale_fill_manual(values = c("#FFD0D9", "#B0144F"), guide = "none") +
+    ylab("predicted activity") + 
+    ggtitle(title)
+}
+
+off_target_stringency_plot <- function(gRNAs_gg6_top4_v1, gRNAs_gg6_top4_v2, title = '') {
+  #'Compare the stringency metrics
+  #'
+  #'Compare the stringency metrics between two gRNA tables
+  #'
+  #'@param gRNAs_gg6_top4_v1 First table of selected grnas
+  #'@param gRNAs_gg6_top4_v2 Second table of selected grnas
+  #'@param title String for plot title
+  bind_rows(gorilla = bind_rows(v1 = gRNAs_gg6_top4_v1,
+                              v2 = gRNAs_gg6_top4_v2,
+                              .id = "version"),
+            .id = "species") %>% 
+    dplyr::count(species, version, off_target_stringency) %>% 
+    dplyr::mutate(species = factor(species, levels = c("gorilla"))) %>% 
+    ggplot(aes(x = version, y = n, fill = as.factor(off_target_stringency))) +
+    geom_bar(stat = "identity", position = "stack") +
+    theme_bw() +
+    facet_wrap(~species) +
+    scale_fill_manual(values = rev(wes_palette("Darjeeling1")), name = "off_target_stringency") + 
+    ggtitle(title)
+}
+
+
+extract_tss <- function(gtf_file, TF_list, gene_name = 'gene_name', transcript_type = 'transcript_type', type = 'type', exon_number = 'exon_number') {
+  TF_gtf_exons <- gtf_file %>% 
+    plyranges::filter(gene_name %in% TF_list &
+                        transcript_type == "protein_coding" &
+                        type == "exon")
+  
+  # TSS of the selected TFs
+  TF_gtf_tss <- TF_gtf_exons %>% 
+    filter(exon_number == 1) %>% 
+    anchor_5p() %>% 
+    mutate(width = 1)
+  
+  return(TF_gtf_tss)
+}
+```
+
+```{r}
+# Set working directory
+working_dir <- '/data/share/htp/perturb-seq/gRNA_design_workflow/'
+setwd(working_dir)
+source('sourcecode.R')
+
+```
+
+```{r yaml_file_read}
+input_parameters <- read_yaml('./shiny_app/input.yaml') 
+```
+## TFs of interest
+load pre-selected TFs (all autosomal protein-coding TFs with at least 1 known motif, annotated both in hg38 and gorGor6)
+
+
+```{r TFs}
+# load pre-selected TFs (all autosomal protein-coding TFs with at least 1 known motif, annotated both in hg38 and gorGor6)
+TF_list <- readRDS(input_parameters$TF_list_path)
+```
+
+
+## GTF annotation
+
+```{r annotattion_gtf}
+# Load the GTF file
+gtf_file <- plyranges::read_gff(input_parameters$gtf_file_path)
+
+# Extract Exons and TSS of gene list from loaded GTF file
+exons_tss <- extract_tss(gtf_file, TF_list)
+TF_gtf_exons = exons_tss$TF_gtf_exons
+TF_gtf_tss = exons_tss$TF_gtf_tss
+remove(exons_tss)
+
+#!!! Script to create file structure for outputs
+# Save as RDS
+saveRDS(TF_gtf_exons, sprintf("RDS/TF_exons_%s.rds", input_parameters$genome))
+saveRDS(TF_gtf_tss, sprintf("RDS/TF_tss_%s.rds", input_parameters$genome))
+
+# how many TFs found in GTF? !!!
+table(TF_list %in% as_tibble(TF_gtf_exons)$gene_name)
+```
+
+
+## Gorilla iPSC nanopore data
+
+```{r nanopore}
+# Load the Nanopore data
+np <- plyranges::read_gff2(input_parameters$np_expr_gff_path)
+
+# annotate nanopore data using...
+## ... the RBB of human gene bodies
+#TF_np_rbb <- annotate_nanopore_transcripts(np, ref = TF_rbb_exons, min_overlap = 0.6)
+
+## ... the gorGor6 ENSEMBL annotation
+#TF_np_ensembl <- annotate_nanopore_transcripts(np, ref = TF_ensembl_exons, min_overlap = 0.6)
+
+## Nanopore data annotation
+TF_np_gtf <- annotate_nanopore_transcripts(np, ref = TF_gtf_exons, min_overlap = 0.6, set_seqlevel_style = "UCSC")
+
+# compare annotation based on RBB and liftoff - 
+#!!!should there be an option to use multiple annotation sources
+# TF_np <- as_tibble(TF_np_rbb) %>% 
+#   dplyr::select(-phase, -type) %>% 
+#   full_join(as_tibble(TF_np_liftoff) %>% 
+#               dplyr::select(-phase, -type) , 
+#             by = c("seqnames", "start", "end", "width", "strand", "source", "score", "gene_id", "transcript_id"),
+#             suffix = c(".rbb", ".liftoff")) %>%  
+#   dplyr::mutate(annot_evidence = case_when(is.na(gene_name.liftoff) & !is.na(gene_name.rbb) ~ "rbb",
+#                                            is.na(gene_name.rbb) & !is.na(gene_name.liftoff) ~ "liftoff",
+#                                            !is.na(gene_name.rbb) & !is.na(gene_name.liftoff) & gene_name.rbb == gene_name.liftoff ~ "rbb+liftoff",
+#                                            T ~ "ambiguous"))
+# saveRDS(TF_np, "RDS/TF_np_annot_gg6_compare_evidence.rds")
+
+# !!! Change string names to take in common string
+TF_np <-  as_tibble(TF_np_gtf) %>%
+  dplyr::mutate(annot_evidence = case_when(!is.na(gene_name) ~ "gtf",
+                                           T ~ "ambiguous"))
+
+saveRDS(TF_np, sprintf("RDS/TF_np_annot_%s_compare_evidence.rds", input_parameters$genome))
+
+# Annotation evidence of nanopore transcripts
+png(sprintf("figures/nanopore_annotation_evidence_%s.png", input_parameters$genome) , width = 700, height = 450)
+TF_np %>% 
+  dplyr::transmute(gtf = as.integer(grepl("gtf", annot_evidence)),
+                   ambiguous = as.integer(annot_evidence == "ambiguous")) %>% 
+  data.frame() %>% 
+  UpSetR::upset(sets = c("ambiguous", "gtf"), order.by = "freq", keep.order = T, mainbar.y.label = "Annotation evidence of\nnanopore transcripts", text.scale = 1.5)
+dev.off()
+
+# !!! is gene_name a common  column name
+# remove transcripts with ambiguous annotation: No ambiguous
+TF_np <- TF_np %>% 
+  dplyr::filter(annot_evidence != "ambiguous") %>% 
+  rowwise() %>% 
+  dplyr::mutate(gene_name = unique(na.omit(gene_name))) 
+
+#!!! generalise checks
+# was a single gene name annotated to several gene IDs?: None, all gene names have unique gene IDs
+TF_np %>% 
+  group_by(gene_id) %>% 
+  mutate(n_gene_name_per_id = n_distinct(gene_name)) %>% 
+  dplyr::filter(n_gene_name_per_id > 1) %>% 
+  View()
+## always rbb VS something else
+
+# resolve ambiguous gene ID-gene name duplications: if one of the versions has several lines of evidence, keep that, otherwise discard both: 1847
+TF_np <- TF_np %>% 
+  group_by(gene_id) %>% 
+  dplyr::filter(n_distinct(gene_name) == 1 | annot_evidence %in% c("gtf")) %>% 
+  ungroup() %>% 
+  dplyr::select(seqnames, start, end, width, strand, source, score, gene_id, transcript_id, gene_name, annot_evidence) %>% 
+  as_granges()
+#seqlevelsStyle(TF_np) <- "NCBI"   
+saveRDS(TF_np, sprintf("RDS/TF_np_annot_%s.rds", input_parameters$genome))
+
+# was a single gene ID annotated to several gene names? : 1543 distinct gene IDs; all with 1 gene name
+TF_np %>% 
+  as_tibble() %>% 
+  group_by(gene_id) %>% 
+  summarise(n_gene_name_per_id = n_distinct(gene_name)) %>% 
+  dplyr::count(n_gene_name_per_id)
+
+# was a single gene name annotated to several gene IDs? (not so much of an issue): Yes
+TF_np %>% 
+  as_tibble() %>% 
+  group_by(gene_name) %>% 
+  summarise(n_gene_id_per_name = n_distinct(gene_id)) %>% 
+  dplyr::count(n_gene_id_per_name)
+
+# check the number of +/- strands: 1016/831
+TF_np %>% 
+  as_tibble() %>% 
+  dplyr::count(strand)
+
+# how many of the TFs have at least 1 nanopore transcript?: 594
+table(TF_list %in% (TF_np %>% as_tibble() %>% pull(gene_name) %>% unique()))
+
+# pull out nanopore-based TSS
+TF_np_tss <- TF_np %>% 
+  as_granges() %>% 
+  anchor_5p() %>% 
+  mutate(width = 1)
+saveRDS(TF_np_tss, sprintf("RDS/TF_np_tss_annot_%s.rds", input_parameters$genome))
+```
+
+
+## Gorilla iPSC ATAC-seq data
+
+```{r load_gorilla_atac }
+# load Gorilla iPSC ATAC-seq data
+atac <- read_narrowpeaks(input_parameters$atac_seq_narrow_peaks_path)
+
+# Change seqnames style (chromosome names) to UCSC: 
+#seqlevelsStyle(atac) <- 'UCSC'
+```
+
+```{r tss_stats}
+# load RBB results
+# TF_rbb_tss <- readRDS("intermediate_files/hg38_gorGor6_TSS_rbb/hg38_to_gorGor6_rbb.RDS")
+# 
+# 
+# TF_rbb_tss_rbb_dist <- TSS_dist2gene(tss = TF_rbb_tss, 
+#                                      gene_model = TF_rbb$gene_summary %>% 
+#                                        as_granges())
+
+# TF_gtf_tss_gtf_dist <- TSS_dist2gene(tss = TF_gtf_tss,
+#                                          gene_model = gtf_file %>%
+#                                            plyranges::filter(gene_name %in% TF_list &
+#                                                              transcript_type == "protein_coding" &
+#                                                              type == "transcript"))
+#TF_gtf_tss_np_dist <- TSS_dist2gene(tss = TF_gtf_tss, gene_model = TF_np)
+
+# dist2gtfTSS <- bind_ranges(#TF_gtf_tss_np_dist %>% mutate(source = "nanopore"),
+#                            TF_gtf_tss_gtf_dist %>% mutate(source = "gtf")) %>% 
+#   as_tibble() %>% 
+#   group_by(seqnames, start, end, width, strand, transcript_id, gene_name) %>% 
+#   filter(distance == min(distance)) %>% 
+#   summarise(source = paste(unique(source), collapse="+"),
+#             distance = unique(distance),
+#             dir = paste(sort(unique(dir)), collapse=",")) %>% 
+#   ungroup()
+# 
+# # List of sources
+# list_of_sources <- unique(dist2gtfTSS$source)
+# 
+# tss_gene_distances <- dist2gtfTSS %>% 
+#   dplyr::mutate(source = factor(source, levels = c(list_of_sources, 
+#                                                    paste(list_of_sources, 
+#                                                          collapse = '+')))) %>% 
+#   ggplot(aes(x=distance+1,fill=source))+
+#   geom_histogram()+scale_x_log10()+
+#   scale_fill_manual(values = c("#2E4172", "#6E9B34", "#AA3939", "#0193A1", "#AA7439", "#FFB600", "#256F5C", "#7D2A68", "#E28100", "steelblue3", "salmon", "black"))+
+#   theme_bw()+theme(legend.title = element_blank(),
+#                    legend.direction = "vertical")
+# 
+# nTSS_source <- dist2gtfTSS %>% group_by(source) %>% 
+#         mutate(n=n(),
+#                dist = case_when( distance>1e3 & dir=="upstream" ~ "far up",
+#                                  distance>1e3 & dir=="downstream" ~ "far down",
+#                                  distance>1e2 ~"proximal",
+#                                  T ~ "fit")) %>% 
+#         mutate(dist = factor(dist, levels=c("far up","far down","proximal","fit"))) %>% 
+#       ggplot(aes(x=reorder(source,n),fill=dist)) +
+#         geom_bar()+coord_flip()+ 
+#         scale_fill_manual(values = wes_palette("Darjeeling1"))+
+#         theme_bw()+
+#         theme(axis.title.y = element_blank(),
+#               legend.title = element_blank())
+# 
+# tss_gene_distances + nTSS_source
+# ggsave(sprintf("figures/TSS_RBB_sanity_checks_%s.png", input_parameters$genome),  width = 13, height = 4)
+
+# remove TSS hits from nanopore that are further than 1000 bp away from their annotated genes
+# TF_gtfTSS <- dist2gtfTSS %>% 
+#   dplyr::filter(distance < input_parameters$multi_tss_dist_threshold) %>% 
+#   as_granges()
+# saveRDS(TF_gtfTSS, sprintf("RDS/TF_gtf_tss_%s.rds", input_parameters$genome))
+
+# how many TFs have a good RBB? 1278
+# table(TF_list %in% as_tibble(TF_gtfTSS)$gene_name)
+
+# size distribution: Width around 0-1 !!!
+# TF_gtfTSS %>% 
+#   as_tibble() %>% 
+#   ggplot(aes(x = width)) +
+#   geom_histogram() +
+#   theme_bw()
+```
+
+
+## Merge information from Nanopore, RBB, liftoff and ATAC to identify TSSs and rank them based on evidence
+
+```{r select_good_tss}
+# Bind all secondary sources of information if present
+# tss_grange_list <- c('gtf_tss', 'np_tss')
+# 
+# TF_tss_all_sources <- as_tibble(TF_gtfTSS) %>% 
+#   dplyr::rename(transcript_id.gtf = transcript_id) %>% 
+#   bind_rows(np_tss = as_tibble(TF_np_tss) %>% dplyr::rename(transcript_id.np = transcript_id), .id = "source") %>%  dplyr::select(seqnames, start, end, width, strand, gene_name, source, transcript_id.gtf, transcript_id.np)
+
+TF_tss_all_sources <- as_tibble(TF_gtf_tss) %>% 
+  dplyr::rename(transcript_id.gtf = transcript_id)
+
+if (!is.null(input_parameters$path_list_secondary_source)){
+  for (i in seq_along(input_parameters$path_list_secondary_source)){
+    
+    path = input_parameters$path_list_secondary_source[i]
+    name = input_parameters$names_secondary_source[i]
+    
+    source_gtf <- plyranges::read_gff(path)
+    source_tss <- extract_tss(source_gtf, TF_list)
+    TF_tss_all_sources <- TF_tss_all_sources %>%
+      bind_rows(!!sys(name) = as_tibble(source_tss) %>% 
+                  #dplyr::rename(!!sys(sprintf('transcript_id.%s', name)) = transcript_id), .id = "source") %>%  
+                  dplyr::select(seqnames, start, end, width, strand, gene_name, source, transcript_id, !!sys(sprintf('transcript_id.%s', name))))
+    
+  }
+  
+  TF_tss_all_sources <- as_tibble(TF_np_tss) %>%
+  left_join(TF_tss_all_sources, by = c("gene_name", "seqnames", "strand"), suffix = c("", ".other"), relationship = "many-to-many")
+  
+}
+
+# Distance of np TSS with all sources
+#!!! Last few rows were NA - resolved; was due to joining dataframes multiple times
+dist_tss_np_all <- as_tibble(TF_np_tss) %>%
+  left_join(TF_tss_all_sources, by = c("gene_name", "seqnames", "strand"), suffix = c("", ".other"), relationship = "many-to-many") %>%
+  rowwise() %>%
+  dplyr::mutate(dist_np_other = ifelse(start >= start.other & start <= end.other,
+                                       0, min(c(abs(start - start.other),
+                                             abs(start - end.other))))) %>%
+  ungroup()
+
+# plot distribution of min distances per TSS and choose cutoff
+p1 <- dist_tss_np_all %>%
+  group_by(gene_name, start) %>%
+  dplyr::filter(dist_np_other == min(dist_np_other)) %>%
+  ungroup() %>%
+  distinct(gene_name, dist_np_other) %>%
+  ggplot(aes(x = dist_np_other)) +
+  geom_density() +
+  theme_bw() +
+  geom_vline(xintercept = 100, linetype = "dashed", color = "red4") +
+  xlab("distance between each nanopore TSS\nand the closest GTF TSS") +
+  ggtitle("All")
+
+p2 <- dist_tss_np_all %>%
+  group_by(gene_name, start) %>%
+  dplyr::filter(dist_np_other == min(dist_np_other)) %>%
+  ungroup() %>%
+  distinct(gene_name, dist_np_other) %>%
+  dplyr::filter(dist_np_other < 500) %>%
+  ggplot(aes(x = dist_np_other)) +
+  geom_density() +
+  theme_bw() +
+  geom_vline(xintercept = 100, linetype = "dashed", color = "red4") +
+  xlab("distance between each nanopore TSS\nand the closest liftoff/RBB TSS") +
+  ggtitle("Distances below 500 bp")
+p1 + p2
+ggsave(sprintf("figures/min_dist_np_other_tss_%s.png", input_parameters$genome), width = 9, height = 4)
+
+# how close does a GENCODE TSS have to be? 497 have dist. < 100
+table(dist_tss_np_all$dist_np_other < input_parameters$max_dist_other_TSS)
+
+# only keep nanopore TSS that have a GENCODE TSS closer than 100bp 
+TF_TSS <- dist_tss_np_all %>% 
+  dplyr::filter(dist_np_other < input_parameters$max_dist_other_TSS) %>% 
+  as_granges() %>% 
+  # only keep nanopore TSS that overlap with an ATAC-seq peak
+  join_overlap_intersect(atac %>% plyranges::select(atac_qValue = qValue, atac_signalValue = signalValue)) %>% 
+  # merge TSS that are closer than stretch_for_TSS_merge
+  anchor_center() %>% 
+  stretch(input_parameters$stretch_for_TSS_merge) %>% 
+  # as_tibble()
+  group_by(gene_name) %>% 
+  # keep track of the evidence, by counting up the number supporting nanopore mRNAs as well as the number of gencode transcript with support level 1/2 or manual annotation (HAVANA)
+  reduce_ranges_directed(n_np = n_distinct(transcript_id[is.na(transcript_id)==F]),
+                         n_gtf = n_distinct(na.omit(transcript_id.gtf[is.na(transcript_id.gtf)==F])),
+                         np_transcripts = paste(unique(transcript_id[is.na(transcript_id)==F]), collapse=","),
+                         gtf_transcripts = paste(unique(transcript_id.gtf[is.na(transcript_id.gtf)==F]), collapse=","),
+                         atac_signalValue = max(atac_signalValue)) %>% 
+  stretch(-input_parameters$stretch_for_TSS_merge) %>% 
+  as_tibble() %>% 
+  rowwise() %>% 
+  # ad hoc evidence score to rank TSS
+  mutate(evidence = sum(n_np*3 + n_gtf + atac_signalValue/1000)) %>% 
+  # if a TSS corresponds to a human TSS, give it the same name, otherwise rank TSS by evidence and name them based on the rank
+  group_by(gene_name) %>% 
+  arrange(desc(evidence)) %>% 
+  mutate(rnk = 1:n()) %>% 
+  rowwise() %>% 
+  #dplyr::mutate(tss_id = ifelse(((rnk ==1) & !(grepl(',', gtf_transcripts))), gene_name, ifelse(grepl(',', gtf_transcripts), tss_names_sort(gtf_transcripts), paste(gene_name, rnk, sep='_'))),
+  mutate(tss_id = sprintf("%s_%s", gene_name, rnk),
+                `TSS source` = paste(c("nanopore_atac", c("gtf")[c(n_gtf > 0)]), collapse = "_")) %>% 
+  ungroup() %>% 
+  dplyr::select(-rnk)
+
+
+# # Sanity check for multiple tss_ids in name of tss
+# if(nrow(TF_gtfTSS %>% filter(grepl(',', tss_id))) > 0) {
+#   
+#   TF_gtfTSS <- TF_gtfTSS %>% 
+#     rowwise() %>% 
+#     mutate(tss_id = ifelse(grepl(',', tss_id), tss_names_sort(tss_id), tss_id)) %>% 
+#     ungroup()
+# }
+
+# Save TF_gtfTSS
+saveRDS(TF_TSS %>% as_granges(), sprintf("RDS/TF_tss_%s.rds", input_parameters$genome))
+
+# number of TFs: 500
+length(unique(TF_TSS$gene_name))
+
+# number of TSSs per TF: 26 - 2, 5 - 3
+TF_TSS %>% 
+  dplyr::count(gene_name, name = "n_TSSs_per_TF") %>% 
+  dplyr::count(n_TSSs_per_TF, name = "n_TF")
+
+# TSS size
+ggplot(TF_TSS, aes(x = width)) +
+  geom_histogram()+
+  theme_bw() +
+  xlab(sprintf("width of merged & filtered TSSs in %s (bp)", input_parameters$genome))
+ggsave(sprintf("figures/TSS_width_%s.png", input_parameters$genome), width = 5, height = 4)
+
+# different lines of TSS evidence
+png(sprintf("figures/sources_of_TSSs_%s.png", input_parameters$genome), width = 700, height = 450)
+TF_TSS %>% 
+  dplyr::transmute(nanopore = 1,
+                   ATAC = 1, 
+                   GTF = n_gtf > 0) %>% 
+  data.frame() %>% 
+  UpSetR::upset(sets = c("nanopore", "ATAC", "GTF"), order.by = "freq", keep.order = T, mainbar.y.label = "Number of TSSs", text.scale = 1.5)
+dev.off()
+```
+
+
+## TSS quality checks
+### Investigate genes with several TSSs
+
+```{r plot_tss}
+# gviz_plotting_function
+# plot_gviz<- function(gn, # gene
+#                            gen, # genome
+#                            gene_models_gtf,
+#                            tss,
+#                            rbb_tss,
+#                            nanoporeBAM,
+#                            annotated_np,
+#                            atacBW,
+#                            offset = 2000) {
+#   
+#   # pull out the TSS regions for the selected gene
+#   tss_filt <- tss %>% 
+#     plyranges::filter(gene_name == gn) %>% 
+#     arrange(rnk)
+#   
+#   # pull out the TSS regions for the selected gene
+#   rbb_tss_filt <- rbb_tss %>% 
+#     plyranges::filter(gene_name == gn) %>% 
+#     arrange(tss_id)
+#   
+#   # get chromosome
+#   chr <- as.character(unique(as_tibble(tss_filt)$seqnames))
+#   
+#   # filter gene models for the gene of interest
+#   #gene_models_ensembl_filt <- gene_models_ensembl %>% dplyr::filter(symbol == gn & chromosome == chr)
+#   gene_models_liftoff_filt <- gene_models_liftoff %>% 
+#       dplyr::filter(symbol == gn & chromosome == chr)
+#   
+#   # get region boundaries
+#   min <- min(c(gene_models_liftoff_filt$start, as_tibble(tss_filt)$start), na.rm = T) - offset
+#   max <- max(c(gene_models_liftoff_filt$end, as_tibble(tss_filt)$end), na.rm = T) + offset
+#   
+#   # set correct chromosome format
+#   options(ucscChromosomeNames = F)
+#   
+#   # plot axis with genomic coordinates
+#   axis  <- GenomeAxisTrack(genome = gen)
+#   
+#   # plot liftoff annotation
+#   liftoff.track <- GeneRegionTrack(gene_models_liftoff_filt, 
+#                                    chromosome = chr,
+#                                    genome = gen,
+#                                    # display gene name for each transcript
+#                                    showId = TRUE, 
+#                                    geneSymbol = TRUE, 
+#                                    # # if the symbol is not annotated, use the ENSEMBL ID as gene name
+#                                    # symbol = gn,
+#                                    name= "Liftoff\nannotation",
+#                                    fontsize = 10, cex.title = 0.8,
+#                                    fill = "darkblue", col = "darkblue", col.axis = "black", col.title = "black")
+#   
+#   
+#   # plot ENSEMBL annotation
+#   # ensembl.track <- GeneRegionTrack(gene_models_ensembl_filt, 
+#   #                                  chromosome = chr,
+#   #                                  genome = gen,
+#   #                                  # display gene name for each transcript
+#   #                                  showId = TRUE, 
+#   #                                  geneSymbol = TRUE, 
+#   #                                  # # if the symbol is not annotated, use the ENSEMBL ID as gene name
+#   #                                  # symbol = gn,
+#   #                                  name= "ENSEMBL\nannotation",
+#   #                                  fontsize = 10, cex.title = 0.8,
+#   #                                  fill = "darkblue", col = "darkblue", col.axis = "black", col.title = "black")
+#   
+#   # plot nanopore reads and coverage
+#   nanopore.track <- AlignmentsTrack(nanoporeBAM,
+#                                      chromosome = chr,
+#                                      genome = gen,
+#                                      name = "Nanopore", 
+#                                      height=0.2, coverageHeight = 0.1, minCoverageHeight = 0,
+#                                      window = -1, windowSize = 100,
+#                                      cex.title=0.8,
+#                                      col.axis="black", col.title="black")
+# 
+#   
+#   # plot ATAC-seq coverage 
+#   atac.tracks <- lapply(names(atacBW), function(name) {
+#     
+#     DataTrack( range = atacBW[[name]], 
+#                type = 'h', 
+#                chromosome = chr,
+#                name = paste0("ATAC-seq\n(", name, ")"),
+#                window = -1, windowSize = 100, genome = gen,
+#                col.title="black", cex.title=0.8,
+#                col.axis="black") 
+#     
+#   })
+#   
+#   # highlight RBB TSS
+#   
+#   if (nrow(as_tibble(rbb_tss_filt)) > 0) {
+#     
+#     rbb.track <- HighlightTrack(trackList = c(liftoff.track) ,
+#                         start = start(rbb_tss_filt) - 10, 
+#                         end   = end(rbb_tss_filt) + 10,
+#                         chromosome = chr, 
+#                         fill = c("chartreuse4", "chartreuse2", "darkolivegreen1", "darkseagreen1")[1:nrow(as_tibble(rbb_tss_filt))],
+#                         col  = c("chartreuse4", "chartreuse2", "darkolivegreen1", "darkseagreen1")[1:nrow(as_tibble(rbb_tss_filt))])
+#     
+#   } else {
+#     
+#     rbb.track <- liftoff.track
+#     
+#   }
+#   
+#   
+#   # highlight TSS
+#   tss.track <- HighlightTrack(trackList = c(nanopore.track, atac.tracks),
+#                         start = start(tss_filt) - 10, 
+#                         end   = end(tss_filt) + 10,
+#                         chromosome = chr, 
+#                         fill = c("red4", "salmon", "lightsalmon2", "peachpuff2")[1:nrow(as_tibble(tss_filt))],
+#                         col  = c("red4", "salmon", "lightsalmon2", "peachpuff2")[1:nrow(as_tibble(tss_filt))])
+#   
+#   # Get TSS IDs
+#   tss_id_gn <- tss_filt %>% as.tibble() %>% pull(tss_id)
+#   
+#   # Add annotation for TSS sites
+#   # annot.track <- AnnotationTrack(range = tss_filt,
+#   #                                 col.axis = "black", col.title = "black",
+#   #                                feature = tss_id_gn, showFeatureId=T, rotation.item=90,
+#   #                                fontcolor.item = "black", cex = 0.2)
+#   
+#   # Nanopre track - full
+#   liftoff.track.full <- GeneRegionTrack(gene_models_liftoff, 
+#                                    chromosome = chr,
+#                                    genome = gen,
+#                                    # display gene name for each transcript
+#                                    showId = TRUE, 
+#                                    geneSymbol = TRUE, 
+#                                    symbol = gn,
+#                                    # # if the symbol is not annotated, use the ENSEMBL ID as gene name
+#                                    # symbol = gn,
+#                                    name= "Liftoff\nannotation: All",
+#                                    fontsize = 10, cex.title = 0.8,
+#                                    fill = "darkblue", col = "darkblue", col.axis = "black", col.title = "black")
+#   
+#   # ensembl.track.full <- GeneRegionTrack(gene_models_ensembl, 
+#   #                                  chromosome = chr,
+#   #                                  genome = gen,
+#   #                                  # display gene name for each transcript
+#   #                                  showId = TRUE, 
+#   #                                  geneSymbol = TRUE, 
+#   #                                  # # if the symbol is not annotated, use the ENSEMBL ID as gene name
+#   #                                  # symbol = gn,
+#   #                                  name= "ENSEMBL\nannotation: All",
+#   #                                  fontsize = 10, cex.title = 0.8,
+#   #                                  fill = "darkblue", col = "darkblue", col.axis = "black", col.title = "black")
+#   
+#   #feature(annot.track) <- tss_id_gn
+#   np <- np %>% filter(seqnames == chr) 
+#   nanopore.reads.track <- GeneRegionTrack(np, 
+#                                    # display gene name for each transcript
+#                                    showId = TRUE, 
+#                                    geneSymbol = TRUE, 
+#                                    # # if the symbol is not annotated, use the ENSEMBL ID as gene name
+#                                    # symbol = gn,
+#                                    name= "Nanopore\nReads",
+#                                    fontsize = 10, cex.title = 0.8,
+#                                    fill = "chartreuse4", col = "chartreuse4", col.axis = "black", col.title = "black")
+#   
+#   # combine into a single plot
+#   track.list<- c(axis, rbb.track, tss.track, liftoff.track.full, nanopore.reads.track)
+#   plotTracks(track.list, 
+#               collapseTranscripts = F, shape = "arrow", 
+#               from = min, 
+#               to = max,
+#               title.width = 1.1,
+#               col.grid='grey' ,
+#               sizes = c(0.7, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.0, 1.0, 1.5),
+#               fontsize=30,
+#               main = paste0(gn, " in ", gen),
+#               cex.main = 1)
+#   
+# }
+```
+
+### Multiple TSSs
+```{r multiple_tss_filtering}
+#!!! Keep/Remove evidence ratio
+
+# Sort out genes with multiple TSS
+TF_TSS_filt <- TF_TSS %>% 
+  as_tibble() %>% 
+  group_by(gene_name) %>% 
+  dplyr::mutate(evidence_ratio = evidence / max(evidence), 
+                distance = start - min(start), 
+                keep = case_when(length(unique(tss_id)) == 1 ~ TRUE,
+                                (length(unique(tss_id)) > 1) & (distance < input_parameters$multi_tss_dist_threshold) & (start == max(start)) ~ TRUE, 
+                            (length(unique(tss_id)) > 1) & (distance >= input_parameters$multi_tss_dist_threshold) ~ FALSE,
+                            .default = FALSE),
+                multi_tss = ifelse(length(unique(tss_id)) > 1, TRUE, FALSE)) %>%  
+  filter(keep == TRUE) %>% 
+  ungroup() %>%
+  dplyr::select(!keep) %>% 
+  as_granges()
+
+```
+
+
+## Write input for design tool
+
+```{r write_input_for_design_tool}
+# write TSSs to a tssTable.txt file (input format required by the gRNA design tool)
+TF_tssTable <- TF_TSS_filt %>%
+  # move all coordinates right to convert to a zero-based coordinate system
+  as_granges() %>% 
+  shift_left(1) %>% 
+  as_tibble %>% 
+  # keep columns required by design tool
+  transmute(gene = gene_name,
+            transcripts = tss_id, 
+            position = start, 
+            strand = strand, 
+            chromosome = seqnames,
+            `TSS source` = TSS.source, #added
+            `primary TSS` = paste0("(",start,", ",end,")"),#added
+            #`secondary TSS` = paste0("(",start,", ",end,")"),#added
+            `cage peak ranges` = "[]")
+write_delim(TF_tssTable, sprintf("design_input_files/%s_tssTable.txt", input_parameters$genome), delim = "\t", quote = "none")
+
+# write TSSs to a p1p2Table.txt file (another input required by the gRNA design tool)
+# TF_p1p2Table <- TF_TSS_filt %>% 
+#   # move all coordinates right to convert to a zero-based coordinate system
+#   as_granges() %>% 
+#   shift_left(1) %>% 
+#   as_tibble %>%  
+#   # keep columns required by design tool
+#   transmute(gene = gene_name,
+#             transcript = tss_id, 
+#             chromosome = seqnames,
+#             strand = strand, 
+#             `TSS source` = TSS.source,
+#             `primary TSS` = paste0("(",start,", ",end,")"),
+#             `secondary TSS` = paste0("(",start,", ",end,")"))
+# write_delim(TF_p1p2Table_gg6, "design_input_files/gg6_p1p2Table.txt", delim = "\t", quote = "none")
+```
+
+
+### Bowtie indexed genomes and promoter regions for off-target scoring
+
+```{r tss_regions_off_target_scoring_gg6, eval = F}
+# ENSEMBL TSSs +-500 bp
+# ensembl_tss_regions_mf6 <- mf6_gtf_sym %>% 
+#   filter(type == "transcript") %>% 
+#   anchor_5p() %>% 
+#   mutate(width=1) %>%
+#   anchor_center() %>% 
+#   stretch(1000)
+
+# liftoff TSSs +-500 bp
+gtf_tss_regions <- gtf_file %>% 
+  filter(type == "transcript") %>% 
+  anchor_5p() %>% 
+  mutate(width=1) %>%
+  anchor_center() %>% 
+  stretch(1000)
+
+# nanopore TSSs +-500 bp
+np_tss_regions <- np %>% 
+  filter(type == "mRNA") %>%
+  anchor_5p() %>% 
+  mutate(width=1) %>%
+  anchor_center() %>% 
+  stretch(1000)
+
+# # RBB TSSs +-500 bp
+# rbb_tss_regions_gg6 <- readRDS("intermediate_files/hg38_gorGor6_TSS_rbb/hg38_to_gorGor6_rbb.RDS") %>% 
+#   anchor_center() %>% 
+#   stretch(1000)
+
+# Change seqlevels based on input
+seqlevelsStyle(np_tss_regions) <- input_parameters$seq_level
+seqlevelsStyle(gtf_tss_regions) <- input_parameters$seq_level
+
+# sort out chromosome names
+seq_levels_to_keep <- c(Reduce(intersect, list(seqlevels(gtf_tss_regions), seqlevels(np_tss_regions))))
+
+# Remove MT and X chromosomes
+MT_chr <- if_else(input_parameters$seq_level == 'UCSC', 'chrM', 'M')
+X_chr <- if_else(input_parameters$seq_level == 'UCSC', 'chrX', 'X')
+seq_levels_to_keep <- seq_levels_to_keep[! seq_levels_to_keep %in% c(X_chr, MT_chr)]
+gtf_tss_regions <- keepSeqlevels(gtf_tss_regions, seq_levels_to_keep, pruning.mode = "coarse")
+np_tss_regions <- keepSeqlevels(np_tss_regions, seq_levels_to_keep, pruning.mode = "coarse")
+
+
+# combine GTF and nanopore
+all_tss_regions <- bind_ranges(gtf_tss_regions, np_tss_regions) %>% 
+  reduce_ranges(gene = paste(unique(gene_name),sep="_")) %>% 
+  mutate(start = ifelse(start < 0, 1, start),
+         tss_id = paste0("tss_", seqnames, "_", start))
+names(all_tss_regions) <- all_tss_regions$tss_id
+
+# write bed file
+write_bed(all_tss_regions, "./design_input_files/bt_indexed_genomes_and_promoters/all_tss_regions_noMT.bed")
+
+# Name of bed file
+# tss_bed_file <- "all_tss_regions_noMT.bed"
+# tss_fa_file <- "all_tss_regions_noMT.fa"
+# bowtie_file <- "all_tss_regions_noMT"
+
+# Create Shell script for bowtie_indices
+writeLines(c(sprintf("cd %sdesign_input_files/bt_indexed_genomes_and_promoters/", working_dir),
+             "/opt/bin/twoBitToFa -bed=all_tss_regions_noMT.bed /data/share/htp/perturb-seq/TF_selection_gRNA_design/genomes/gorGor6.2bit all_tss_regions_noMT.fa","sbatch --job-name=bowtie_index_promoters_workflow_test --wrap='bowtie-build all_tss_regions_noMT.fa all_tss_regions_noMT'", 
+             sprintf('sbatch --job-name=bowtie_index_genome_%s --wrap="bowtie-build %s genome_%s_noMT"', input_parameters$genome, input_parameters$genome_fa , input_parameters$genome)),
+           "./shell_scripts/create_bowtie_indices.sh")
+system(sprintf('chmod u+r+x %s/shell_scripts/create_bowtie_indices.sh', working_dir))
+
+
+# Create Shell script for gRNA Design
+writeLines(c("conda activate /data/home/termeg/.conda/envs/CRISPRiaDesign", 
+             'export PATH="$PATH:/opt/bin"',
+             sprintf("cd %s", working_dir),
+             sprintf("sbatch --job-name=design_gRNAs_workflow --wrap='
+python %s --tss  design_input_files/%s_tssTable.txt \
+                                        --model %s \
+                                        --genome %s \
+                                        --atac %s \
+                                        --btp  design_input_files/bt_indexed_genomes_and_promoters/all_tss_regions_noMT_%s \
+                                        --btg  /data/share/htp/perturb-seq/gRNA_design_gorilla_orang/design_input_files/bt_indexed_genomes_and_promoters/genome_%s_noMT \
+                                        --btf  intermediate_files/%s_bt_folder \
+                                        -o design_output_files/TF_gRNAs_%s -n 40'", input_parameters$gRNA_function_path, input_parameters$genome, input_parameters$gRNA_model_path, input_parameters$genome_fa, input_parameters$atac_bw_path, input_parameters$genome, input_parameters$genome, input_parameters$genome, input_parameters$genome), 
+                                        "conda deactivate"), 
+"./shell_scripts/design_grnas.sh") 
+system(sprintf('chmod u+r+x %s/shell_scripts/design_grnas.sh', working_dir))
+```
+
+```{sh create_bowtie_indices, eval = F}
+cd ./design_input_files/bt_indexed_genomes_and_promoters/
+
+# gorGor6 genome FASTA (without the MT chromosome)
+#samtools faidx /data/share/htp/perturb-seq/TF_selection_gRNA_design/genomes/gorGor6.fa chr1 chr2A chr2B chr3 chr4 chr5 chr6 chr7 chr8 chr9 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19 chr20 chr21 chr22 > gorGor6_noMT.fa
+
+# index with bowtie
+#sbatch --job-name=bowtie_index_genome_gg6 --wrap="bowtie-build gorGor6_noMT.fa genome_gg6_noMT"
+
+# gorGor6 promoter FASTA (without the MT chromosome)
+/opt/bin/twoBitToFa -bed=all_tss_regions_noMT.bed /data/share/htp/perturb-seq/TF_selection_gRNA_design/genomes/gorGor6.2bit all_tss_regions_noMT.fa
+
+# index with bowtie
+sbatch --job-name=bowtie_index_promoters_workflow_test --wrap="bowtie-build all_tss_regions_noMT.fa all_tss_regions_noMT"
+```
+
+
+## Run Horlbeck CRISPRi/a design tool
+
+```{bash find_grnas, eval = F}
+cd /opt/miniconda3/bin/
+source activate
+conda activate /data/home/termeg/.conda/envs/CRISPRiaDesign
+export PATH="$PATH:/opt/bin"
+cd /data/share/htp/perturb-seq/gRNA_design_workflow/
+sbatch --job-name=design_gRNAs_gorGor6_workflow --wrap='
+python /data/share/htp/perturb-seq/gRNA_design_workflow/functions/run_gRNA_prediction.py --tss  design_input_files/gorGor6_tssTable.txt \
+                                        --model /data/share/htp/perturb-seq/TF_selection_gRNA_design_exp3/design_input_files/hg19_dnaseOnly_fit_pickle \
+                                        --genome /data/share/htp/perturb-seq/TF_selection_gRNA_design/genomes/gorGor6.fa \
+                                        --atac /data/share/htp/perturb-seq/gRNA_design_gorilla_orang/ATAC-seq/ATAC_gorGor6_iPSC_55D1_79A2_dCas_55D1.bw \
+                                        --btp  design_input_files/bt_indexed_genomes_and_promoters/all_tss_regions_noMT_gorGor6 \
+                                        --btg  /data/share/htp/perturb-seq/gRNA_design_gorilla_orang/design_input_files/bt_indexed_genomes_and_promoters/genome_gg6_noMT \
+                                        --btf  intermediate_files/gorGor66_bt_folder \
+                                        -o design_output_files/TF_gRNAs_gorGor6 -n 40'
+                                        
+conda deactivate
+                          
+```
+
+
+## gRNA Analysis
+```{r load_best40_grnas}
+# Species colors 
+spec_colors <- c("#B0144F")
+names(spec_colors) <- c( "gorilla")
+
+# load gRNAs
+gRNAs_gg6 <- data.table::fread("design_output_files/TF_gRNAs_gg6_top40.csv") %>% 
+  group_by(gRNA_sequence) %>%
+  dplyr::filter(length(unique(gene)) == 1) %>% 
+  ungroup()
+
+# Sanity checks
+
+# score distributions
+gRNAs_gg6 %>% 
+  mutate(species = 'gorilla') %>% 
+  ggplot(aes(x = species, y = predicted_score, fill = species)) +
+  geom_violin(draw_quantiles = 0.5) +
+  theme_bw() +
+  scale_fill_manual(values = spec_colors)
+
+# pull out off-target scores
+off_target_scores_gg6 <- gRNAs_gg6 %>% 
+  dplyr::count(gene, off_target_stringency)
+
+# check genes with the worst off-target scores: "ZNF626" "ZNF765" "ZNF468" "ZNF519" "ZNF525" "ZNF708"
+off_target_scores_gg6 %>% 
+  pivot_wider(names_from = "off_target_stringency", names_prefix = "off_target_", values_from = "n", values_fill = 0) %>% 
+  arrange(desc(off_target_4)) %>% 
+  head()
+
+# plot off-target scores
+p1 <- off_target_scores_gg6 %>% 
+  group_by(gene) %>% 
+  dplyr::mutate(off_target1234 = sum(n[off_target_stringency %in% 1:4])) %>% 
+  ungroup() %>% 
+  arrange(desc(off_target1234)) %>% 
+  dplyr::mutate(gene = factor(gene, levels = gene[off_target_stringency == 0]),
+                off_target_stringency = as.factor(off_target_stringency)) %>% 
+  ggplot(aes(x = gene, y = n, fill = off_target_stringency)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = rev(wes_palette("Darjeeling1"))) +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  ggtitle("Gorilla") +
+  ylab("number of gRNAs")
+
+
+p1 + plot_layout(guides = "collect")
+ggsave("figures/off_target_scores_gg6.png", width = 14, height = 5)
+
+# bin gRNAs and pick top4
+
+## take the gRNA with the highest on-target activity per bin
+gRNAs_gg6_top4_v1 <- gRNAs_gg6 %>% 
+  dplyr::rename(seqnames = chromosome) %>% 
+  dplyr::mutate(predicted_score = as.double(format(predicted_score, digits = 6))) %>% 
+  bin_grnas_v1(10) %>% 
+  group_by(transcript) %>% 
+  slice_max(order_by = predicted_score, n = 4) %>% 
+  ungroup()
+
+
+## take the gRNA with the best combination of high on-target and low off-target activity per bin
+gRNAs_gg6_top4_v2 <- gRNAs_gg6 %>% 
+  dplyr::rename(seqnames = chromosome) %>% 
+  dplyr::mutate(predicted_score = as.double(format(predicted_score, digits = 6))) %>% 
+  bin_grnas_v2(10, 0.15)  %>% 
+  group_by(transcript) %>% 
+  slice_max(order_by = predicted_score, n = 4) %>% 
+  ungroup()
+saveRDS(gRNAs_gg6_top4_v2, "RDS/gRNAs_gg6_top4.rds")
+
+
+# check if there are >=4 gRNAs left for each gene - Yes
+gRNAs_gg6_top4_v1 %>%
+  group_by(transcript) %>%
+  dplyr::filter(length(sgID) == 4) %>%
+  pull(gene) %>%
+  unique() %>%
+  length()
+
+gRNAs_gg6_top4_v2 %>%
+  group_by(transcript) %>%
+  dplyr::filter(length(sgID) == 4) %>%
+  pull(gene) %>%
+  unique() %>%
+  length()
+
+# load all gRNAs
+gRNAs_gg6_all <- data.table::fread("design_output_files/TF_gRNAs_gg6_unfiltered.csv", skip = 2, col.names = c("sgID", "gene", "transcript", "gRNA_sequence", "genomic_sequence", "predicted_score", "39_nearTSS", "31_nearTSS", "21_genome", "31_2_nearTSS", "31_3_nearTSS", "seqnames", "position", "strand"), select = c(1:11, 14, 18, 19)) %>% 
+  dplyr::mutate(off_target_stringency = case_when(`31_nearTSS` & `21_genome` ~ 0,
+                                                  `31_nearTSS` ~ 1,
+                                                  `21_genome` ~ 2,
+                                                  `31_2_nearTSS` ~ 3,
+                                                  `31_3_nearTSS` ~ 4),
+                is_in_final_lib = sgID %in% gRNAs_gg6_top4_v2$sgID) %>% 
+  dplyr::select(-c( "39_nearTSS", "31_nearTSS", "21_genome", "31_2_nearTSS", "31_3_nearTSS")) %>% 
+  drop_na(off_target_stringency) 
+saveRDS(gRNAs_gg6_all, "RDS/gRNAs_gg6_all.rds")
+
+gRNA_gg6_all_gr <- gRNAs_gg6_all %>% 
+  dplyr::mutate(start = position + 1,
+                width = 1) %>% 
+  as_granges() %>% 
+  anchor_5p() %>%
+  stretch(22) %>% 
+  anchor_3p() %>%
+  stretch(-3)
+saveRDS(gRNA_gg6_all_gr, "shiny_app/data_files/gorGor6/gRNAs/gRNAs.rds")
+
+```
+
+```{r trying multiple parameters for v1 and v2}
+
+# Compare predicted score with all grnas - version 1
+predicted_score_plot(gRNAs_gg6_all, gRNAs_gg6_top4_v1, title = "v1")
+
+# Compare predicted score with all grnas - version 2
+predicted_score_plot(gRNAs_gg6_all, gRNAs_gg6_top4_v2, title = "v2")
+
+off_target_stringency_plot(gRNAs_gg6_top4_v1, gRNAs_gg6_top4_v2) 
+
+# Empty list of plots
+plots <- list()
+
+# Combinations
+binwidth_list <- c(10, 15)
+off_target_stringency_list <- c(0.1, 0.15, 0.5)
+
+combinations <- expand.grid(binwidth_list, off_target_stringency_list)
+names(combinations) <- c("binwidth", "off_target_stringency")
+
+# Plots loop
+for (i in 1:nrow(combinations)){
+  val1 <- combinations[i, "binwidth"]
+  val2 <- combinations[i, "off_target_stringency"]
+  title <- paste("Plot : ", val1, " and ", val2)
+  
+  # Getting grnas from v1 and v2
+  gRNAs_gg6_top4_v1 <- gRNAs_gg6 %>% 
+    dplyr::rename(seqnames = chromosome) %>% 
+    dplyr::mutate(predicted_score = as.double(format(predicted_score, digits = 6))) %>% 
+    bin_grnas_v1(val1) %>% 
+    group_by(transcript) %>% 
+    slice_max(order_by = predicted_score, n = 4) %>% 
+    ungroup()
+  
+  gRNAs_gg6_top4_v2 <- gRNAs_gg6 %>% 
+    dplyr::rename(seqnames = chromosome) %>% 
+    dplyr::mutate(predicted_score = as.double(format(predicted_score, digits = 6))) %>% 
+    bin_grnas_v2(val1, val2)  %>% 
+    group_by(transcript) %>% 
+    slice_max(order_by = predicted_score, n = 4) %>% 
+    ungroup()
+  
+  # Add plot - v1
+  plot_title <- paste(title, " - v1")
+  plots[[plot_title]] <- predicted_score_plot(gRNAs_gg6_all, gRNAs_gg6_top4_v1, title = plot_title)
+  
+  # Add plot - v2
+  plot_title <- paste(title, " - v2")
+  plots[[plot_title]] <- predicted_score_plot(gRNAs_gg6_all, gRNAs_gg6_top4_v1, title = plot_title)
+}
+
+# Resize plots
+plots <- lapply(plots, function(plot) {
+  plot + theme(plot.background = element_rect(fill = 'white'),
+               plot.margin = margin(0.1, 0.1, 0.1, 0.1, 'cm'),
+               plot.title = element_text(size = 8),
+               text = element_text(size = 6))
+})
+
+# Plot grid
+plots_grid <- grid.arrange(grobs = plots, ncol = 4)
+ggsave("figures/multi_parameters_gnras_plot_gg6.png", width = 30, height = 20)
+
+```
+
+
+```{r compare_binning_versions}
+# on-target activity distribution
+summary(gRNAs_gg6_top4_v1$predicted_score)
+summary(gRNAs_gg6_top4_v2$predicted_score)
+
+bind_rows(gorilla = bind_rows(v1 = gRNAs_gg6_top4_v1,
+                            v2 = gRNAs_gg6_top4_v2,
+                            .id = "version"),
+          .id = "species") %>% 
+  dplyr::mutate(species = factor(species, levels = c("gorilla"))) %>% 
+  ggplot(aes(x = version, y = predicted_score, fill = version)) +
+  geom_violin(draw_quantiles = 0.5) +
+  theme_bw() +
+  facet_wrap(~species) +
+  theme(legend.position = "none")
+ggsave("figures/comapre_binning_versions_activity_gg6.png", width = 6, height = 4)
+
+# off-target activity
+bind_rows(v1 = gRNAs_gg6_top4_v1,
+          v2 = gRNAs_gg6_top4_v2,
+          .id = "version") %>% 
+  dplyr::count(version, off_target_stringency)
+
+# Off target activity comparison between two versions
+off_target_stringency_plot(gRNAs_gg6_top4_v1, gRNAs_gg6_top4_v2)
+ggsave("figures/comapre_binning_versions_off_target_gg6.png", width = 6, height = 4)
+
+# individual examples
+
+## what has changes?
+anti_join(gRNAs_gg6_top4_v1, gRNAs_gg6_top4_v2) %>% 
+  View()
+
+## POU5F1 human (unchanged)
+# bind_rows(v1 = gRNAs_human_top4_v1,
+#           v2 = gRNAs_human_top4_v2,
+#           .id = "version") %>% 
+#   dplyr::filter(gene == "POU5F1")
+
+```
+
+```{r efficient_and_comparable_libraries}
+# score distribution all VS selected
+predicted_score_plot(gRNAs_gg6_all, gRNAs_gg6_top4_v2)
+ggsave("figures/predicted_activity_all_designed_vs_selected_gg6.png", width = 8, height = 6)
+```
+
