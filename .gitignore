@@ -1,5 +1,5 @@
-./chimp_data/
-./outputs/
-./shiny_app/data_files/
-./SLURM_files/
-./.Rhistory
+chimp_data/
+outputs/
+shiny_app/data_files/
+SLURM_files/
+.Rhistory
