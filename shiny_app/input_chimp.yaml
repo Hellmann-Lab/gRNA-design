@@ -1,0 +1,61 @@
+######### Inputs from gRNA Design #########
+
+# Flag to rewrite folder; if true rewrites output
+rewrite_flag : TRUE
+
+# Log file path
+logfile_path : "chimp_logfile.txt"
+
+# Working direcctory
+working_dir: "/data/share/htp/perturb-seq/gRNA_design_workflow"
+
+# Run shell scripts for Horlbeck gRNA design or stop after shell script generation
+run_scripts: TRUE
+
+# gorGor6 GTF - Used for gene list
+gtf_file_path : "/data/share/htp/perturb-seq/gRNA_design_workflow/chimp_data/Liftoff_files/panTro3_liftoff.gtf"
+path_list_secondary_source : []
+names_secondary_source : []
+
+## TF list - required user input
+# Load pre-selected TFs - keeping gorilla TFs for direct comparison
+TF_list_path : "/data/share/htp/perturb-seq/gRNA_design_workflow/chimp_data/TF_list_panTro3.rds"
+
+## Nanopore - GFF
+# load Nanopore data - None
+np_expr_gff_path : ''
+
+## ATAC seq
+# load Gorilla iPSC ATAC-seq data
+atac_seq_narrow_peaks_path : "/data/share/htp/perturb-seq/gRNA_design_workflow/chimp_data/ATAC_Seq/Chimp_ATAC_panTro3_noBL.narrowPeak"
+
+## Genome
+# Select organism genome
+genome : 'panTro3'
+seq_level: 'UCSC'
+
+## TSS thresholds
+max_dist_other_TSS : 100 # Minimum distance between GTF and nanopore TSS required to accept nanopore TSS
+stretch_for_TSS_merge : 100 # how close TSSs should be merged?
+multi_tss_dist_threshold : 1000
+
+## TSS to filter out
+tss_to_remove : []
+
+# gRNA Design
+grna_num : 40 # Number of gRNAs to design
+binwidth : 10
+max_reduction_activity : 0.15
+gRNA_function_path : '/data/share/htp/perturb-seq/gRNA_design_workflow/functions/run_gRNA_prediction.py'
+#gRNA_function_path : '/data/share/htp/perturb-seq/TF_selection_gRNA_design_exp3/functions/run_gRNA_prediction.py'
+gRNA_model_path : '/data/share/htp/perturb-seq/TF_selection_gRNA_design_exp3/design_input_files/hg19_dnaseOnly_fit_pickle'
+genome_fa : '/data/share/htp/perturb-seq/gRNA_design_workflow/chimp_data/external_data/GCF_028858775.1_NHGRI_mPanTro3-v1.1-hic.freeze_pri_genomic.fna'
+genome_2bit : ''
+atac_bw_path: '/data/share/htp/perturb-seq/gRNA_design_workflow/chimp_data/ATAC_Seq/ATAC_Chimp_SRR10072537_SRR10072538.bw'
+
+
+# shiny App
+shiny_working_dir : "/data/share/htp/perturb-seq/gRNA_design_workflow/shiny_app"
+shiny_helper_path : "/data/share/htp/perturb-seq/gRNA_design_workflow/shiny_app/helper_functions.R"
+run_shiny_app : TRUE
+

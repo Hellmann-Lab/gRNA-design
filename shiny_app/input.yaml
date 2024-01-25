@@ -1,0 +1,57 @@
+######### Inputs from gRNA Design #########
+
+# Flag to rewrite folder; if true rewrites output
+rewrite_flag : TRUE
+
+# Log file path
+logfile_path : "logfile.txt"
+
+# Working direcctory
+working_dir: "/data/share/htp/perturb-seq/gRNA_design_workflow"
+
+# Run shell scripts for Horlbeck gRNA design or stop after shell script generation
+run_scripts: TRUE
+
+# gorGor6 GTF - Used for gene list
+gtf_file_path : "/data/share/htp/perturb-seq/gRNA_design_gorilla_orang/genome_data/gorGor6_liftoff_genes_full.gtf"
+
+## TF list - required user input
+# Load pre-selected TFs
+TF_list_path : "/data/share/htp/perturb-seq/gRNA_design_gorilla_orang/RDS/TF_list_gorGor6.rds"
+
+## Nanopore - GFF
+# load Gorilla iPSC Nanopore data
+np_expr_gff_path : "/data/share/htp/perturb-seq/gRNA_design_gorilla_orang/genome_data/Ggor_ipsc_collapsed.gff"
+
+## ATAC seq
+# load Gorilla iPSC ATAC-seq data
+atac_seq_narrow_peaks_path : "/data/share/htp/perturb-seq/gRNA_design_gorilla_orang/ATAC-seq/Gorilla_iPSC_55D1_79A2.dCas_55D1_gorGor6_noBL.narrowPeak"
+
+## Genome
+# Select organism genome
+genome : 'gorGor6'
+seq_level: 'UCSC'
+
+## TSS thresholds
+max_dist_other_TSS : 100 # Minimum distance between GTF and nanopore TSS required to accept nanopore TSS
+stretch_for_TSS_merge : 100 # how close TSSs should be merged?
+#multi_tss_dist_threshold : 1000
+
+## TSS to filter out
+tss_to_remove : []
+
+# gRNA Design
+grna_num : 40 # Number of gRNAs to design
+binwidth : 10
+max_reduction_activity : 0.15
+gRNA_function_path : '/data/share/htp/perturb-seq/gRNA_design_workflow/functions/run_gRNA_prediction.py'
+#gRNA_function_path : '/data/share/htp/perturb-seq/TF_selection_gRNA_design_exp3/functions/run_gRNA_prediction.py'
+gRNA_model_path : '/data/share/htp/perturb-seq/TF_selection_gRNA_design_exp3/design_input_files/hg19_dnaseOnly_fit_pickle'
+genome_fa : '/data/share/htp/perturb-seq/TF_selection_gRNA_design/genomes/gorGor6.fa'
+genome_2bit : '/data/share/htp/perturb-seq/TF_selection_gRNA_design/genomes/gorGor6.2bit'
+atac_bw_path: '/data/share/htp/perturb-seq/gRNA_design_gorilla_orang/ATAC-seq/ATAC_gorGor6_iPSC_55D1_79A2_dCas_55D1.bw'
+
+# shiny App
+shiny_working_dir : "/data/share/htp/perturb-seq/gRNA_design_workflow/shiny_app"
+shiny_helper_path : "/data/share/htp/perturb-seq/gRNA_design_workflow/shiny_app/helper_functions.R"
+run_shiny_app : TRUE
