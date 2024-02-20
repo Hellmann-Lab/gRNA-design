@@ -18,7 +18,7 @@ option_list = list(make_option(c("--sourcecode_path"),
                                type = "character",
                                help = "Path to Input paramters YAML file",
                                metavar = "character",
-                               default = '/data/share/htp/perturb-seq/gRNA_design_workflow/shiny_app/input.yaml')
+                               default = '/data/share/htp/perturb-seq/gRNA_design_workflow/shiny_app/input_chimp.yaml')
                    )
 
 # options parser
@@ -135,7 +135,7 @@ TF_np_tss <- generate_np_TSS(np, TF_gtf_exons, input_parameters)
 ######################################
 
 # Distance of np TSS with all sources
-combined_sources <- combine_tss_sources(input_parameters, TF_tss_all_sources, TF_np_tss = TF_np_tss)
+combined_sources <- combine_tss_sources(input_parameters, TF_gtf_tss, TF_np_tss = TF_np_tss)
 dist_tss_np_all = combined_sources$dist_tss_np_all
 TF_tss_all_sources = combined_sources$TF_tss_all_sources
 remove(combined_sources)

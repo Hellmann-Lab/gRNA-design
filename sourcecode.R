@@ -294,16 +294,16 @@ off_target_stringency_plot <- function(gRNAs_top4_v1, gRNAs_top4_v2, title = '')
   #'@param gRNAs_top4_v2 Second table of selected grnas
   #'@param title String for plot title
   
-  bind_rows(species = bind_rows(v1 = gRNAs_top4_v1,
+  bind_rows(v1 = gRNAs_top4_v1,
                                 v2 = gRNAs_top4_v2,
-                                .id = "version"),
-            .id = "species") %>% 
-    dplyr::count(species, version, off_target_stringency) %>% 
-    dplyr::mutate(species = factor(species, levels = c('species'))) %>% 
+                                .id = "version") %>% 
+    dplyr::count(version, off_target_stringency) %>% 
     ggplot(aes(x = version, y = n, fill = as.factor(off_target_stringency))) +
     geom_bar(stat = "identity", position = "stack") +
     theme_bw() +
-    facet_wrap(~species) +
+    #facet_wrap(~species)  +
+    labs(x =  'Filter version: v2 - With off_target_stringency', 
+         y = 'Number of selected gRNAs')+
     scale_fill_manual(values = rev(wes_palette("Darjeeling1")), name = "off_target_stringency") + 
     ggtitle(title)+
     theme(plot.title = element_text(hjust = 0.5))
@@ -314,6 +314,10 @@ off_target_stringency_plot <- function(gRNAs_top4_v1, gRNAs_top4_v2, title = '')
 ######################################
 
 create_folder_structure <- function(input_parameters){
+  #' Creates folder structure for outputs
+  #'
+  #'@param input_parameters input parameters as named list
+
   # Genome folder
   dir.create(paste0(input_parameters$working_dir, '/', input_parameters$genome))
   
@@ -338,6 +342,15 @@ create_folder_structure <- function(input_parameters){
 ######################################
 
 seqnames_check <- function(gtf_file, atac, np = NA){
+  #' Checks the seqnames levels of all input files
+  #'
+  #' If the seqnames of files do not match or if missing seqnames are found 
+  #' in one of the files compared to required list of seqname levels. the script
+  #' execution is stopped
+  #'
+  #'@param gtf_file GTF file
+  #'@param atac ATAC-Seq file
+  #'@param np Nanopore file
   
   # Get seqnames of each input
   gtf_seqnames <- seqnames(gtf_file)
@@ -348,7 +361,7 @@ seqnames_check <- function(gtf_file, atac, np = NA){
     np_seqnames <- seqnames(np)
   
   # Common seqnames
-  common_seqnames <- c(Reduce(intersect, list(gtf_seqnames, np_seqnames, atac_seqnames)))
+  #common_seqnames <- c(Reduce(intersect, list(gtf_seqnames, np_seqnames, atac_seqnames)))
   
   # Check if required seqnames exist in all 3
   seqnames_missing <- list('gtf' = input_parameters$seqnames_to_keep[!(input_parameters$seqnames_to_keep %in% gtf_seqnames)], 
@@ -357,7 +370,7 @@ seqnames_check <- function(gtf_file, atac, np = NA){
   
   } else{
     # Common seqnames
-    common_seqnames <- c(Reduce(intersect, list(gtf_seqnames, atac_seqnames)))
+    #common_seqnames <- c(Reduce(intersect, list(gtf_seqnames, atac_seqnames)))
     
     # Check if required seqnames exist in atac and GTF
     seqnames_missing <- list('gtf' = input_parameters$seqnames_to_keep[!(input_parameters$seqnames_to_keep %in% gtf_seqnames)], 
@@ -409,6 +422,14 @@ extract_tss <- function(gtf_file, TF_list, gene_name = 'gene_name', transcript_t
 ######################################
 #!!! Generalise function 
 generate_np_TSS <- function(np, TF_gtf_exons, input_parameters){
+  #' Generates nanopore TSSs from GTF annotation
+  #'
+  #' Uses the annotate_nanopore_transcripts function and gets the nanopore
+  #' TSSs which are then used as targets for gRNA design
+  #'
+  #'@param np Nanopore file
+  #'@param TF_gtf_exons Exons as Granges from GTF file
+  #'@param input_parameters input parameters as named list
   
   if (input_parameters$np_expr_gff_path != ""){
     
@@ -471,6 +492,7 @@ nanopore_tss_checks <- function(TF_np_tss, TF_list){
   #'Also gives number of transcription factors in nanopore transcript 
   #'
   #'@param TF_np_tss Annotated Nanopore transcript TSSs
+  #'@param TF_list List of genes for which gRNA design is to be done
 
   # Number of genes with multiple gene IDs
   print(sprintf("Number of genes with multiple gene IDs: %i" , TF_np_tss %>% 
@@ -504,7 +526,15 @@ nanopore_tss_checks <- function(TF_np_tss, TF_list){
 ######################################
 ## Joining TSS Sources
 ######################################
-combine_tss_sources <- function(input_parameters, TF_tss_all_sources, TF_np_tss = NA){
+combine_tss_sources <- function(input_parameters, TF_gtf_tss, TF_np_tss = NA){
+  #' Combines Nanopore TSSs with other sources
+  #'
+  #' Combined Nanopore TSSs with annotated evidences from GTF TSSs
+  #' Also calculates distance between start sites of TSSs from multiple sources 
+  #'
+  #'@param input_parameters input parameters as named list
+  #'@param TF_gtf_tss GTF TSSs
+  #'@param TF_np_tss Annotated Nanopore transcript TSSs
   
 if (!is_empty(TF_np_tss)){
   
@@ -572,6 +602,13 @@ ggsave(sprintf("%s/figures/min_dist_np_other_tss_%s.png", input_parameters$worki
 ## Merged and Filtered TSS
 ######################################
 create_TF_TSS <- function(input_parameters, dist_tss_np_all, atac){
+  #' Creates a final list of TSSs for gRNA design
+  #'
+  #' Filters out TSS with no nearby annotation and merges close TSS together  
+  #'
+  #'@param input_parameters input parameters as named list
+  #'@param dist_tss_np_all Combined TSS with distances
+  #'@param atac ATAC narrowpeaks
   
   
 if (input_parameters$np_expr_gff_path != ""){
@@ -643,6 +680,7 @@ TF_TSS <- dist_tss_np_all %>%
     dplyr::mutate(evidence_ratio = evidence / max(evidence),
                   distance = start - min(start),
                   multi_tss = ifelse(length(unique(tss_id)) > 1, TRUE, FALSE)) %>%
+    filter(distance < 1000) %>% #Filter out genes with distance >1000 in tss ids
     ungroup() %>%
     as_granges()
   
@@ -658,6 +696,13 @@ return(TF_TSS_filt)
 ## Merged and Filtered TSS: checks
 ######################################
 filtered_TSS_checks <- function(input_parameters, TF_TSS){
+  #' Generates sanitary checks for filtered TSSs
+  #'
+  #' Number of unique genes selected; Number of TSS per gene; 
+  #' width and sources of merged and filtered TSSs
+  #'  
+  #'@param input_parameters input parameters as named list
+  #'@param TF_TSS TSSs selected for gRNA design
   
 # Number of unique TFs in selection
 sprintf('Number of unique TFs in selection: %i', length(unique(TF_TSS$gene_name)))
@@ -693,6 +738,11 @@ dev.off()
 ######################################
 # Combine all TSS and create bed file of tss regions
 gRNA_design_TSS_regions <- function(gtf_file, input_parameters, type_sub = "transcript"){
+  #' Get TSS from GRanges 
+  #' 
+  #'@param gtf_file GTF file
+  #'@param input_parameters input parameters as named list
+  #'@param type_sub type of transcript to filter out
   
   # GTF TSSs +-500 bp
   TSS_file <- gtf_file %>% 
@@ -709,6 +759,12 @@ gRNA_design_TSS_regions <- function(gtf_file, input_parameters, type_sub = "tran
 }
 
 gRNA_design_tool_inputs <- function(input_parameters, TF_TSS_filt, gtf_file, np = NA){
+  #' Create gRNA design inputs: bed files
+  #' 
+  #'@param input_parameters input parameters as named list
+  #'@param TF_TSS_filt Final list of TSSs selected for gRNA design
+  #'@param gtf_file GTF file
+  #'@param np Nanopore file
   
   # Write TSSs to a tssTable.txt file (input format required by the gRNA design tool)
   TF_tssTable <- TF_TSS_filt %>%
@@ -778,6 +834,9 @@ gRNA_design_tool_inputs <- function(input_parameters, TF_TSS_filt, gtf_file, np 
 ######################################
 
 bowtie_indices_script <- function(input_parameters){
+  #' Create bowtie_indices shell script 
+  #'
+  #'@param input_parameters input parameters as named list
   
   # Get genome file folder
   #genome_folder <- dirname(input_parameters$genome_fa)
@@ -846,6 +905,9 @@ bowtie_indices_script <- function(input_parameters){
 ## Shell script for gRNA Design
 ######################################
 gRNA_design_script <- function(input_parameters){
+  #' Create gRNA design shell script 
+  #'
+  #'@param input_parameters input parameters as named list
   
 # Create Shell script for gRNA Design
 writeLines(c('#!/bin/bash', 
@@ -870,6 +932,10 @@ system(sprintf('chmod u+r+x %s/shell_scripts/design_grnas.sh', input_parameters$
 ######################################
 grna_design_results <- function(input_parameters)
 {
+  #' Creates gRNA design results and filter out best gRNAs for each transcript 
+  #'
+  #'@param input_parameters input parameters as named list
+
   # top_n_gRNAs
   gRNAs <- data.table::fread(sprintf("%s/design_output_files/TF_gRNAs_%s_top%s.csv", input_parameters$working_dir, input_parameters$genome, input_parameters$grna_num)) %>% 
     group_by(gRNA_sequence) %>%
@@ -1016,6 +1082,10 @@ grna_design_results <- function(input_parameters)
 ######################################
 
 create_app_data_files <- function(input_parameters){
+  #' Generate app data files 
+  #'
+  #'@param input_parameters input parameters as named list
+
   # Set working directory
   workdir <- sprintf("%s/data_files", input_parameters$shiny_working_dir)
   if (!dir.exists(workdir)){
