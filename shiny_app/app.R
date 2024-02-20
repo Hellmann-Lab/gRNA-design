@@ -235,8 +235,12 @@ ui <- fluidPage(
         
         fluidRow(column(
           width = 12,
-          plotOutput("gviz_plot", height = 900)
+          plotOutput("gviz_plot", height = 900, width = "100%")
         )),
+        
+        fluidRow(column(width = 12,
+                        br(),
+                        actionButton('save_gviz_plot', "Save Plot"))),
         
         # Scores and positions of the gRNAs
         fluidRow(column(
@@ -246,22 +250,32 @@ ui <- fluidPage(
           shiny::tags$br(style = "line-height: 10px"),
           plotOutput(
             "gRNA_selection",
-            height = 450,
+            height = 450, 
+            width = "100%",
             # Equivalent to: click = clickOpts(id = "plot_click")
             click = "plot1_click",
             brush = brushOpts(id = "plot1_brush")
           )
         )),
         
+        fluidRow(column(width = 12,
+                        br(),
+                        actionButton('save_grna_plot', "Save Plot"))),
+        
         # table containing the selected gRNAs
         fluidRow(column(
-          width = 5,
+          width = 12,
+          height = 3,
           br(),
           h4("Selected gRNAs"),
-          dataTableOutput("brush_info"),
+          dataTableOutput("brush_info",  width = "100%", height = "3%"),
           br(),
           actionButton("clear", "Clear selected")
         )),
+        
+        fluidRow(column(width = 12,
+                        br(),
+                        actionButton('save_grna_table', "Save as Plot"))),
         
         # explanations of the table entries
         fluidRow(
@@ -341,6 +355,17 @@ server <- function(input, output, session) {
   # upon pressing "Go"...
   observeEvent( input$go, {  
     
+    # .p3 <- reactive(make_gRNA_gviz( gn = input$gene, 
+    #                                 tss_sel = input$tss_sel,
+    #                                 gen = input$genome,
+    #                                 offset = input$offset,
+    #                                 gene_models = all_gene_models[[input$genome]],
+    #                                 tss = all_tss[[input$genome]],
+    #                                 grnas = all_grnas[[input$genome]],
+    #                                 atacBW = all_atacBW[[input$genome]],
+    #                                 nanoporeBAM = all_nanoporeBAM[[input$genome]],
+    #                                 gviz_focus = input$gviz_focus))
+    
     #...show Gviz plot of the genomic region around the TSS of the selected gene (GENCODE annotation, nanopore data, positions of the designed gRNAs, human and cynomolgus ATAC-seq data)
     output$gviz_plot <- renderPlot({
       
@@ -370,6 +395,25 @@ server <- function(input, output, session) {
       
     })
     
+    observeEvent(input$save_gviz_plot, {
+      
+      # Save the Gviz as a SVG file
+      svg(file="gviz.svg", width=10, height=7)
+      p3 <- make_gRNA_gviz( gn = input$gene, 
+                            tss_sel = input$tss_sel,
+                            gen = input$genome,
+                            offset = input$offset,
+                            gene_models = all_gene_models[[input$genome]],
+                            tss = all_tss[[input$genome]],
+                            grnas = all_grnas[[input$genome]],
+                            atacBW = all_atacBW[[input$genome]],
+                            nanoporeBAM = all_nanoporeBAM[[input$genome]],
+                            gviz_focus = input$gviz_focus)
+      dev.off()
+
+    })
+
+    
     # show detailed plot about the positions and predicted activity scores of the gRNAs
     output$gRNA_selection <- renderPlot({
       
@@ -390,6 +434,21 @@ server <- function(input, output, session) {
       removeModal()
       
       p4
+      
+    })
+    
+    observeEvent(input$save_grna_plot, {
+      
+      # Save the ggplot as a SVG file
+      #svg(file="grna.svg", width=10, height=5)
+      p4 <- gRNA_selection_plot(format_gRNA_table(gn = input$gene, 
+                                                  tss_sel = input$tss_sel,
+                                                  genome = input$genome,
+                                                  grnas = all_grnas[[input$genome]]),
+                                genome = input$genome)
+      
+      ggsave('grna.svg', p4, width=15, height=6, units = "in", dpi = 300)
+      #dev.off()
       
     })
   
@@ -436,9 +495,41 @@ server <- function(input, output, session) {
                   filter = "top",
                   class = 'cell-border stripe',
                   rownames = FALSE,extensions = 'Buttons',
-                  options = list(dom = 'Bfrtip', buttons = c('csv', 'excel')))
+                  options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), 
+                                 width = 30,
+                                 height = 3,
+                                 initComplete = JS(
+                                   "function(settings, json) {",
+                                   
+                                   "$(this.api().table().header()).css({'font-size': '140%', 'text-align': 'center'});",
+                                   "$(this.api().table().container()).css({'font-size': '130%', 'text-align': 'center'});", 
+                                   "}")))
     
   })
+  
+  observeEvent(input$save_grna_table, {
+    
+    # Save the table as a PDF
+    dt_table <- DT::datatable(collect_input$selected_gRNAs %>% distinct() %>% dplyr::select(-start), 
+                              filter = "top",
+                              class = 'cell-border stripe',
+                              rownames = FALSE,extensions = 'Buttons',
+                              options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), 
+                                             width = 30,
+                                             height = 3,
+                                             initComplete = JS(
+                                               "function(settings, json) {",
+                                               
+                                               "$(this.api().table().header()).css({'font-size': '140%', 'text-align': 'center'});",
+                                               "$(this.api().table().container()).css({'font-size': '130%', 'text-align': 'center'});", 
+                                               "}")))
+    
+    html <- "grna_table.html"
+    saveWidget(dt_table, html)
+    # webshot::webshot(html,
+    #                  file = "grna_table.png")
+    
+    })
   
 }
 

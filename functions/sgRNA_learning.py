@@ -336,11 +336,15 @@ def generateSgrnaDistanceTable_p1p2Strategy(sgInfoTable, libraryTable, tssTable,
 						if tssRow['strand'] == '+':
 							sgDistanceSeries.append((sgId, name, tssRow.name,
 								pamCoord - tssRow['primary TSS'][0],
-								pamCoord - tssRow['primary TSS'][1]))
+								pamCoord - tssRow['primary TSS'][1],
+								pamCoord - tssRow['secondary TSS'][0],
+								pamCoord - tssRow['secondary TSS'][1]))
 						else:
 							sgDistanceSeries.append((sgId, name, tssRow.name,
 								(pamCoord - tssRow['primary TSS'][1]) * -1,
-								(pamCoord - tssRow['primary TSS'][0]) * -1))
+								(pamCoord - tssRow['primary TSS'][0]) * -1,
+								(pamCoord - tssRow['secondary TSS'][1]) * -1,
+								(pamCoord - tssRow['secondary TSS'][0]) * -1))
 
 				else:
 					for sgId, pamCoord in group.iteritems():
@@ -349,11 +353,15 @@ def generateSgrnaDistanceTable_p1p2Strategy(sgInfoTable, libraryTable, tssTable,
 						if closestTssRow['strand'] == '+':
 							sgDistanceSeries.append((sgId, name, closestTssRow.name,
 								pamCoord - closestTssRow['primary TSS'][0],
-								pamCoord - closestTssRow['primary TSS'][1]))
+								pamCoord - closestTssRow['primary TSS'][1],
+								pamCoord - closestTssRow['secondary TSS'][0],
+								pamCoord - closestTssRow['secondary TSS'][1]))
 						else:
 							sgDistanceSeries.append((sgId, name, closestTssRow.name,
 								(pamCoord - closestTssRow['primary TSS'][1]) * -1,
-								(pamCoord - closestTssRow['primary TSS'][0]) * -1))
+								(pamCoord - closestTssRow['primary TSS'][0]) * -1,
+								(pamCoord - closestTssRow['secondary TSS'][1]) * -1,
+								(pamCoord - closestTssRow['secondary TSS'][0]) * -1))
 	else:
 		for name, group in sgInfoTable['pam coordinate'].groupby([libraryTable['gene'],libraryTable['transcripts']]):
 			if name in tssTable.index:
@@ -365,17 +373,21 @@ def generateSgrnaDistanceTable_p1p2Strategy(sgInfoTable, libraryTable, tssTable,
 						if tssRow['strand'] == '+':
 							sgDistanceSeries.append((sgId, tssRow.name[0], tssRow.name[1],
 								pamCoord - tssRow['primary TSS'][0],
-								pamCoord - tssRow['primary TSS'][1]))
+								pamCoord - tssRow['primary TSS'][1],
+								pamCoord - tssRow['secondary TSS'][0],
+								pamCoord - tssRow['secondary TSS'][1]))
 						else:
 							sgDistanceSeries.append((sgId, tssRow.name[0], tssRow.name[1],
 								(pamCoord - tssRow['primary TSS'][1]) * -1,
-								(pamCoord - tssRow['primary TSS'][0]) * -1))
+								(pamCoord - tssRow['primary TSS'][0]) * -1,
+								(pamCoord - tssRow['secondary TSS'][1]) * -1,
+								(pamCoord - tssRow['secondary TSS'][0]) * -1))
 
 				else:
 					print name, tssRow
 					raise ValueError('all gene/trans pairs should be unique')
 
-	return pd.DataFrame(sgDistanceSeries, columns=['sgId', 'gene', 'transcript', 'primary TSS-Up', 'primary TSS-Down']).set_index(keys=['sgId'])
+	return pd.DataFrame(sgDistanceSeries, columns=['sgId', 'gene', 'transcript', 'primary TSS-Up', 'primary TSS-Down', 'secondary TSS-Up', 'secondary TSS-Down']).set_index(keys=['sgId'])
 
 def generateSgrnaDistanceTable(sgInfoTable, tssTable, libraryTable):
 	sgDistanceSeries = []

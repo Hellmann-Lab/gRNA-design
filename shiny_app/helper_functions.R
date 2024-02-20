@@ -408,7 +408,8 @@ make_gRNA_gviz <- function(gn, tss_sel, gen, offset, gene_models, tss, grnas, at
                     # # if the symbol is not annotated, use the ENSEMBL ID as gene name
                     # symbol = gn,
                     name= paste0(name, "\ntranscripts"),
-                    fontsize = 10, cex.title = 0.8,
+                    fontsize = 24, cex.title = 0.8, cex = 2.0,
+                    fontsize.group=32,
                     fill = 'darkgray', 
                     col = 'darkgray', 
                     col.axis = "black", 
@@ -542,19 +543,19 @@ make_gRNA_gviz <- function(gn, tss_sel, gen, offset, gene_models, tss, grnas, at
     track.sizes <- c(0.7, rep(1.2, length(gene_model_tracks)), rep(1.2, length(atac_tracks) + !is.null(grna_track)))
   }
  
-  plotTracks(track.list, 
+  track_plot <- plotTracks(track.list, 
               collapseTranscripts = F, shape = "arrow", 
               from = min, 
               to = max,
-              title.width = 1.1,
+              title.width = 2.2,
               col.grid='grey' ,
               sizes = track.sizes,
-              fontsize=11,
+              fontsize=28,
               main = paste0("chromosome ", chr),
               cex.main = 1,
               highlight = "darkblue") # Added highlight as feature for gene selected
   
-  
+  return(track_plot)
 }
 
 
@@ -572,7 +573,7 @@ format_gRNA_table <- function(gn, tss_sel, genome, grnas){
   
   if (tss_sel != 'all'){
     
-    grnas %>%
+    grna_table <- grnas %>%
       plyranges::filter((gene == gn) & (transcript == tss_sel)) %>% 
       as_tibble() %>% 
       dplyr::mutate(predicted_score = round(predicted_score, digits = 2),
@@ -581,14 +582,14 @@ format_gRNA_table <- function(gn, tss_sel, genome, grnas){
   }
   
   else {
-    grnas %>%
+    grna_table <- grnas %>%
     plyranges::filter(gene == gn) %>% 
     as_tibble() %>% 
     dplyr::mutate(predicted_score = round(predicted_score, digits = 2),
                   is_in_final_lib = factor(is_in_final_lib, levels = c(F, T))) %>% 
     dplyr::select(sgID, transcript, predicted_activity = predicted_score, off_target_stringency, gRNA_sequence, is_in_final_lib, start)}
   
-  
+  return(grna_table)
   
 }
 
@@ -616,15 +617,20 @@ gRNA_selection_plot<- function(tab, genome){
       xlab("Position") + ylab("Score")+
       scale_color_manual(values = colors[names(colors) %in% unique(tab$is_in_final_lib)]) +
       facet_grid(.~transcript,scales = "free")+
-      theme_bw(base_size = 16)+
-      labs(color = "Selected in final library?") +
+      theme_bw(base_size = 20)+
+      labs(color = "Selected in \nfinal library?") +
       theme(axis.text.x=element_blank(),
-            plot.margin = margin(5.5,
+            axis.title.x=element_text(size = 24),
+            axis.text.y=element_text(size = 20),
+            axis.title.y=element_text(size = 24),
+            legend.title = element_text(size = 24),
+            legend.text = element_text(size = 20),
+            plot.margin = margin(2.5,
                                  case_when(length(unique(tab$transcript)) == 1 ~ 300,
                                            length(unique(tab$transcript)) == 2 ~ 150,
-                                           T ~ 5.5),
-                                 5.5,5.5))
-    p
+                                           T ~ 2.5),
+                                 2.5,2.5),
+            strip.text = element_text(size = 24))
     
     return(p)
     

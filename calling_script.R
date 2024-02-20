@@ -233,4 +233,5 @@ if (input_parameters$run_shiny_app) {
   
   ### run the application ###
   shinyApp(ui = ui, server = server)
+  
 }

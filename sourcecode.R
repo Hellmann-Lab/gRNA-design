@@ -775,16 +775,32 @@ gRNA_design_tool_inputs <- function(input_parameters, TF_TSS_filt, gtf_file, np 
     # keep columns required by design tool
     transmute(gene = gene_name,
               transcripts = tss_id, 
-              position = start, 
-              strand = strand, 
               chromosome = seqnames,
+              strand = strand, 
+              position = start, 
               `TSS source` = TSS.source,
               `primary TSS` = paste0("(",start,", ",end,")"),
-              #`secondary TSS` = paste0("(",start,", ",end,")"))
+              `secondary TSS` = paste0("(",start,", ",end,")"),
               `cage peak ranges` = "[]")
   
   # Save Table
   write_delim(TF_tssTable, sprintf("%s/design_input_files/%s_tssTable.txt", input_parameters$working_dir, input_parameters$genome), delim = "\t", quote = "none")
+  
+  # p1p2 commented out
+  # TF_p1p2Table <- TF_TSS_filt %>% 
+  #   # move all coordinates right to convert to a zero-based coordinate system
+  #   as_granges() %>% 
+  #   shift_left(1) %>% 
+  #   as_tibble %>%  
+  #   # keep columns required by design tool
+  #   transmute(gene = gene_name,
+  #             transcript = tss_id, 
+  #             chromosome = seqnames,
+  #             strand = strand, 
+  #             `TSS source` = TSS.source,
+  #             `primary TSS` = paste0("(",start,", ",end,")"),
+  #             `secondary TSS` = paste0("(",start,", ",end,")"))
+  # write_delim(TF_p1p2Table,  sprintf("%s/design_input_files/%s_p1p2Table.txt", input_parameters$working_dir, input_parameters$genome), delim = "\t", quote = "none")
 
   # Define X and MT chromosomes
   MT_chr <- if_else(input_parameters$seq_level == 'UCSC', 'chrM', 'M')

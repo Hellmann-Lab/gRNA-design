@@ -7,14 +7,27 @@
   - [Inputs](#inputs)
   - [Outputs](#outputs)
   - [Usage](#usage)
+  - [R Session](#r_session)
   - [Contributions](#contributions)
  
 ## Description
 The pipeline designs species-specific gRNAs for a given list of genes.
+Designing gene-specific guide RNAs, RNA sequence that recognizes and directs the dCAS-KRAB
+repressor complex, is a challenge in highthroughput experiments especially for non-human
+species. Most CRISPRi studies chose pre-designed gRNAs published in Horlbeck et
+al. (2016) (copyright CC BY-NC 4.0). Here, we generalize their CRISPRia design tool to be able to design gRNAs for other species.
 
+The process has the following steps:
 
-
-
+  1. Identifying Transcription Start sites: 
+    - Based on the GTF and gene list provided. The TSSs are identified and used downstream. If nanopore expression data is provided, it is used as the primary evidence with the GTF providing annotation evidence (use TSSs with GTF annotation in vicinity).
+    - Multiple TSSs for each gene are marked and kept.
+  
+  2. Designing guide RNA:
+    - gRNA design is done using Horlbeck et al. (2016) (copyright CC BY-NC 4.0)
+    
+  3. Filtering guide RNA:
+    - Selection of top gRNAs (4 per gene) based on predicted activity and off-target effects
 
 ## Requirements
 The pipeline incorporates R and python scripts. The scripts utilize following versions:
@@ -24,102 +37,9 @@ Python 2.7.18
 Use the following code to install requirements of the pipeline from requirements.txt
 
 ```bash
-
+Rscript install_packages.R
 ```
 
-### R Session Info
-
-```
-R version 4.2.3 (2023-03-15)
-Platform: x86_64-pc-linux-gnu (64-bit)
-Running under: Devuan GNU/Linux 4 (chimaera)
-
-Matrix products: default
-BLAS:   /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3
-LAPACK: /usr/lib/x86_64-linux-gnu/openblas-pthread/libopenblasp-r0.3.13.so
-
-locale:
- [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C               LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
- [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8    LC_PAPER=en_US.UTF-8       LC_NAME=C                 
- [9] LC_ADDRESS=C               LC_TELEPHONE=C             LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
-
-attached base packages:
-[1] grid      stats4    stats     graphics  grDevices utils     datasets  methods   base     
-
-other attached packages:
- [1] cowplot_1.1.1          plotly_4.10.2          DT_0.28                shinyBS_0.61.1        
- [5] shiny_1.7.5            glue_1.6.2             docstring_1.0.0        GenomicFeatures_1.50.4
- [9] AnnotationDbi_1.60.2   Biobase_2.58.0         reticulate_1.31        gridExtra_2.3         
-[13] ggplotify_0.1.1        lmerTest_3.1-3         lme4_1.1-34            Matrix_1.6-0          
-[17] ggtext_0.1.2           data.table_1.14.8      rtracklayer_1.58.0     Gviz_1.42.1           
-[21] patchwork_1.1.3        wesanderson_0.3.6      universalmotif_1.16.0  biomaRt_2.54.1        
-[25] kableExtra_1.3.4       knitr_1.43             plyranges_1.18.0       yaml_2.3.7            
-[29] Rsamtools_2.14.0       Biostrings_2.66.0      XVector_0.38.0         GenomicRanges_1.50.2  
-[33] GenomeInfoDb_1.34.9    IRanges_2.32.0         ATACseqQC_1.22.0       S4Vectors_0.38.1      
-[37] BiocGenerics_0.44.0    lubridate_1.9.2        forcats_1.0.0          stringr_1.5.0         
-[41] dplyr_1.1.2            purrr_1.0.2            readr_2.1.4            tidyr_1.3.0           
-[45] tibble_3.2.1           ggplot2_3.4.3          tidyverse_2.0.0        optparse_1.7.3        
-
-loaded via a namespace (and not attached):
-  [1] rappdirs_0.3.3                R.methodsS3_1.8.2             ragg_1.2.5                   
-  [4] bit64_4.0.5                   DelayedArray_0.24.0           R.utils_2.12.2               
-  [7] rpart_4.1.19                  KEGGREST_1.38.0               TFBSTools_1.36.0             
- [10] RCurl_1.98-1.12               AnnotationFilter_1.22.0       generics_0.1.3               
- [13] lambda.r_1.2.4                RSQLite_2.3.1                 bit_4.0.5                    
- [16] tzdb_0.4.0                    webshot_0.5.5                 xml2_1.3.5                   
- [19] httpuv_1.6.11                 SummarizedExperiment_1.28.0   DirichletMultinomial_1.40.0  
- [22] xfun_0.40                     jquerylib_0.1.4               hms_1.1.3                    
- [25] evaluate_0.21                 promises_1.2.1                fansi_1.0.4                  
- [28] restfulr_0.0.15               progress_1.2.2                caTools_1.18.2               
- [31] dbplyr_2.3.3                  DBI_1.1.3                     htmlwidgets_1.6.2            
- [34] futile.logger_1.4.3           ellipsis_0.3.2                crosstalk_1.2.0              
- [37] backports_1.4.1               GenomicScores_2.10.0          annotate_1.76.0              
- [40] deldir_1.0-9                  MatrixGenerics_1.10.0         vctrs_0.6.3                  
- [43] ensembldb_2.22.0              cachem_1.0.8                  withr_2.5.0                  
- [46] BSgenome_1.66.3               vroom_1.6.3                   checkmate_2.2.0              
- [49] GenomicAlignments_1.34.1      prettyunits_1.1.1             getopt_1.20.3                
- [52] svglite_2.1.1                 cluster_2.1.4                 lazyeval_0.2.2               
- [55] seqLogo_1.64.0                crayon_1.5.2                  labeling_0.4.2               
- [58] edgeR_3.42.4                  pkgconfig_2.0.3               nlme_3.1-162                 
- [61] ProtGenerics_1.30.0           nnet_7.3-19                   rlang_1.1.1                  
- [64] lifecycle_1.0.3               filelock_1.0.2                BiocFileCache_2.6.1          
- [67] AnnotationHub_3.6.0           dichromat_2.0-0.1             VennDiagram_1.7.3            
- [70] randomForest_4.7-1.1          matrixStats_1.0.0             graph_1.76.0                 
- [73] Rhdf5lib_1.20.0               boot_1.3-28.1                 base64enc_0.1-3              
- [76] png_0.1-8                     viridisLite_0.4.2             rjson_0.2.21                 
- [79] bitops_1.0-7                  R.oo_1.25.0                   KernSmooth_2.23-22           
- [82] rhdf5filters_1.10.1           blob_1.2.4                    regioneR_1.30.0              
- [85] gridGraphics_0.5-1            jpeg_0.1-10                   CNEr_1.34.0                  
- [88] scales_1.2.1                  memoise_2.0.1                 magrittr_2.0.3               
- [91] plyr_1.8.8                    zlibbioc_1.44.0               compiler_4.2.3               
- [94] BiocIO_1.8.0                  RColorBrewer_1.1-3            cli_3.6.1                    
- [97] ade4_1.7-22                   htmlTable_2.4.1               formatR_1.14                 
-[100] Formula_1.2-5                 MASS_7.3-60                   tidyselect_1.2.0             
-[103] stringi_1.7.12                textshaping_0.3.6             highr_0.10                   
-[106] locfit_1.5-9.8                ChIPpeakAnno_3.32.0           latticeExtra_0.6-30          
-[109] sass_0.4.7                    VariantAnnotation_1.44.1      polynom_1.4-1                
-[112] tools_4.2.3                   timechange_0.2.0              parallel_4.2.3               
-[115] rstudioapi_0.15.0             TFMPvalue_0.0.9               foreign_0.8-84               
-[118] farver_2.1.1                  digest_0.6.33                 BiocManager_1.30.21.1        
-[121] pracma_2.4.2                  Rcpp_1.0.11                   gridtext_0.1.5               
-[124] BiocVersion_3.16.0            later_1.3.1                   httr_1.4.7                   
-[127] motifStack_1.42.0             biovizBase_1.46.0             colorspace_2.1-0             
-[130] rvest_1.0.3                   XML_3.99-0.14                 splines_4.2.3                
-[133] yulab.utils_0.0.6             RBGL_1.74.0                   multtest_2.54.0              
-[136] systemfonts_1.0.4             preseqR_4.0.0                 xtable_1.8-4                 
-[139] jsonlite_1.8.7                nloptr_2.0.3                  futile.options_1.0.1         
-[142] poweRlaw_0.70.6               UpSetR_1.4.0                  R6_2.5.1                     
-[145] Hmisc_5.1-0                   pillar_1.9.0                  htmltools_0.5.6              
-[148] mime_0.12                     fastmap_1.1.1                 minqa_1.2.5                  
-[151] BiocParallel_1.34.2           interactiveDisplayBase_1.36.0 codetools_0.2-19             
-[154] utf8_1.2.3                    bslib_0.5.1                   lattice_0.21-8               
-[157] numDeriv_2016.8-1.1           curl_5.0.2                    gtools_3.9.4                 
-[160] GO.db_3.16.0                  interp_1.1-4                  roxygen2_7.2.3               
-[163] survival_3.5-5                limma_3.56.2                  rmarkdown_2.24               
-[166] InteractionSet_1.26.1         munsell_0.5.0                 rhdf5_2.42.1                 
-[169] GenomeInfoDbData_1.2.9        HDF5Array_1.26.0              reshape2_1.4.4               
-[172] gtable_0.3.4   
-```
 ## Inputs
 
 The following files are required as inputs:
@@ -272,5 +192,99 @@ They can be changed in the `option_list` directly. The run steps are as follows:
   2. Run script.
 
 
+## R Session Info
+
+```
+R version 4.2.3 (2023-03-15)
+Platform: x86_64-pc-linux-gnu (64-bit)
+Running under: Devuan GNU/Linux 4 (chimaera)
+
+Matrix products: default
+BLAS:   /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3
+LAPACK: /usr/lib/x86_64-linux-gnu/openblas-pthread/libopenblasp-r0.3.13.so
+
+locale:
+ [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C               LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8    
+ [5] LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8    LC_PAPER=en_US.UTF-8       LC_NAME=C                 
+ [9] LC_ADDRESS=C               LC_TELEPHONE=C             LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+
+attached base packages:
+[1] grid      stats4    stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+ [1] cowplot_1.1.1          plotly_4.10.2          DT_0.28                shinyBS_0.61.1        
+ [5] shiny_1.7.5            glue_1.6.2             docstring_1.0.0        GenomicFeatures_1.50.4
+ [9] AnnotationDbi_1.60.2   Biobase_2.58.0         reticulate_1.31        gridExtra_2.3         
+[13] ggplotify_0.1.1        lmerTest_3.1-3         lme4_1.1-34            Matrix_1.6-0          
+[17] ggtext_0.1.2           data.table_1.14.8      rtracklayer_1.58.0     Gviz_1.42.1           
+[21] patchwork_1.1.3        wesanderson_0.3.6      universalmotif_1.16.0  biomaRt_2.54.1        
+[25] kableExtra_1.3.4       knitr_1.43             plyranges_1.18.0       yaml_2.3.7            
+[29] Rsamtools_2.14.0       Biostrings_2.66.0      XVector_0.38.0         GenomicRanges_1.50.2  
+[33] GenomeInfoDb_1.34.9    IRanges_2.32.0         ATACseqQC_1.22.0       S4Vectors_0.38.1      
+[37] BiocGenerics_0.44.0    lubridate_1.9.2        forcats_1.0.0          stringr_1.5.0         
+[41] dplyr_1.1.2            purrr_1.0.2            readr_2.1.4            tidyr_1.3.0           
+[45] tibble_3.2.1           ggplot2_3.4.3          tidyverse_2.0.0        optparse_1.7.3        
+
+loaded via a namespace (and not attached):
+  [1] rappdirs_0.3.3                R.methodsS3_1.8.2             ragg_1.2.5                   
+  [4] bit64_4.0.5                   DelayedArray_0.24.0           R.utils_2.12.2               
+  [7] rpart_4.1.19                  KEGGREST_1.38.0               TFBSTools_1.36.0             
+ [10] RCurl_1.98-1.12               AnnotationFilter_1.22.0       generics_0.1.3               
+ [13] lambda.r_1.2.4                RSQLite_2.3.1                 bit_4.0.5                    
+ [16] tzdb_0.4.0                    webshot_0.5.5                 xml2_1.3.5                   
+ [19] httpuv_1.6.11                 SummarizedExperiment_1.28.0   DirichletMultinomial_1.40.0  
+ [22] xfun_0.40                     jquerylib_0.1.4               hms_1.1.3                    
+ [25] evaluate_0.21                 promises_1.2.1                fansi_1.0.4                  
+ [28] restfulr_0.0.15               progress_1.2.2                caTools_1.18.2               
+ [31] dbplyr_2.3.3                  DBI_1.1.3                     htmlwidgets_1.6.2            
+ [34] futile.logger_1.4.3           ellipsis_0.3.2                crosstalk_1.2.0              
+ [37] backports_1.4.1               GenomicScores_2.10.0          annotate_1.76.0              
+ [40] deldir_1.0-9                  MatrixGenerics_1.10.0         vctrs_0.6.3                  
+ [43] ensembldb_2.22.0              cachem_1.0.8                  withr_2.5.0                  
+ [46] BSgenome_1.66.3               vroom_1.6.3                   checkmate_2.2.0              
+ [49] GenomicAlignments_1.34.1      prettyunits_1.1.1             getopt_1.20.3                
+ [52] svglite_2.1.1                 cluster_2.1.4                 lazyeval_0.2.2               
+ [55] seqLogo_1.64.0                crayon_1.5.2                  labeling_0.4.2               
+ [58] edgeR_3.42.4                  pkgconfig_2.0.3               nlme_3.1-162                 
+ [61] ProtGenerics_1.30.0           nnet_7.3-19                   rlang_1.1.1                  
+ [64] lifecycle_1.0.3               filelock_1.0.2                BiocFileCache_2.6.1          
+ [67] AnnotationHub_3.6.0           dichromat_2.0-0.1             VennDiagram_1.7.3            
+ [70] randomForest_4.7-1.1          matrixStats_1.0.0             graph_1.76.0                 
+ [73] Rhdf5lib_1.20.0               boot_1.3-28.1                 base64enc_0.1-3              
+ [76] png_0.1-8                     viridisLite_0.4.2             rjson_0.2.21                 
+ [79] bitops_1.0-7                  R.oo_1.25.0                   KernSmooth_2.23-22           
+ [82] rhdf5filters_1.10.1           blob_1.2.4                    regioneR_1.30.0              
+ [85] gridGraphics_0.5-1            jpeg_0.1-10                   CNEr_1.34.0                  
+ [88] scales_1.2.1                  memoise_2.0.1                 magrittr_2.0.3               
+ [91] plyr_1.8.8                    zlibbioc_1.44.0               compiler_4.2.3               
+ [94] BiocIO_1.8.0                  RColorBrewer_1.1-3            cli_3.6.1                    
+ [97] ade4_1.7-22                   htmlTable_2.4.1               formatR_1.14                 
+[100] Formula_1.2-5                 MASS_7.3-60                   tidyselect_1.2.0             
+[103] stringi_1.7.12                textshaping_0.3.6             highr_0.10                   
+[106] locfit_1.5-9.8                ChIPpeakAnno_3.32.0           latticeExtra_0.6-30          
+[109] sass_0.4.7                    VariantAnnotation_1.44.1      polynom_1.4-1                
+[112] tools_4.2.3                   timechange_0.2.0              parallel_4.2.3               
+[115] rstudioapi_0.15.0             TFMPvalue_0.0.9               foreign_0.8-84               
+[118] farver_2.1.1                  digest_0.6.33                 BiocManager_1.30.21.1        
+[121] pracma_2.4.2                  Rcpp_1.0.11                   gridtext_0.1.5               
+[124] BiocVersion_3.16.0            later_1.3.1                   httr_1.4.7                   
+[127] motifStack_1.42.0             biovizBase_1.46.0             colorspace_2.1-0             
+[130] rvest_1.0.3                   XML_3.99-0.14                 splines_4.2.3                
+[133] yulab.utils_0.0.6             RBGL_1.74.0                   multtest_2.54.0              
+[136] systemfonts_1.0.4             preseqR_4.0.0                 xtable_1.8-4                 
+[139] jsonlite_1.8.7                nloptr_2.0.3                  futile.options_1.0.1         
+[142] poweRlaw_0.70.6               UpSetR_1.4.0                  R6_2.5.1                     
+[145] Hmisc_5.1-0                   pillar_1.9.0                  htmltools_0.5.6              
+[148] mime_0.12                     fastmap_1.1.1                 minqa_1.2.5                  
+[151] BiocParallel_1.34.2           interactiveDisplayBase_1.36.0 codetools_0.2-19             
+[154] utf8_1.2.3                    bslib_0.5.1                   lattice_0.21-8               
+[157] numDeriv_2016.8-1.1           curl_5.0.2                    gtools_3.9.4                 
+[160] GO.db_3.16.0                  interp_1.1-4                  roxygen2_7.2.3               
+[163] survival_3.5-5                limma_3.56.2                  rmarkdown_2.24               
+[166] InteractionSet_1.26.1         munsell_0.5.0                 rhdf5_2.42.1                 
+[169] GenomeInfoDbData_1.2.9        HDF5Array_1.26.0              reshape2_1.4.4               
+[172] gtable_0.3.4   
+```
+
 ## Contributions
-The repository is written by Anita Térmeg () and Daksh Pratap Singh Pamar (daksh.pamar@campus.lmu.de)
+The repository is written by Anita Térmeg and Daksh Pratap Singh Pamar

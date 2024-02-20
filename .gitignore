@@ -3,3 +3,4 @@ outputs/
 shiny_app/data_files/
 SLURM_files/
 .Rhistory
+shiny_app/poster_figures/

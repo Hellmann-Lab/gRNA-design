@@ -29,6 +29,7 @@ genomeDict = loadGenomeAsDict(options.dict_file)
 print("Genome loading done!")
 tss = pd.read_csv(options.tss_file,sep='\t', index_col=range(2), header = 0, dtype = {"chromosome": "string"})
 tss['primary TSS'] = tss['primary TSS'].apply(lambda tupString: (int(tupString.strip('()').split(', ')[0].split('.')[0]), int(tupString.strip('()').split(', ')[1].split('.')[0])))
+tss['secondary TSS'] = tss['secondary TSS'].apply(lambda tupString: (int(tupString.strip('()').split(', ')[0].split('.')[0]), int(tupString.strip('()').split(', ')[1].split('.')[0])))
 
 #p1p2 = pd.read_csv(options.p1p2_file,sep='\t', header=0, index_col=range(2), dtype = {"chromosome": "string"})
 #p1p2['primary TSS'] = p1p2['primary TSS'].apply(lambda tupString: (int(tupString.strip('()').split(', ')[0].split('.')[0]), int(tupString.strip('()').split(', ')[1].split('.')[0])))
